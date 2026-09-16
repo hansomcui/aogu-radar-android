@@ -50,7 +50,7 @@ jobs:
 
           cat > gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          android.useAndroidX=false
+          android.useAndroidX=true
           android.nonTransitiveRClass=true
           EOF
 
@@ -67,8 +67,8 @@ jobs:
                   applicationId "com.hansom.yaoguradar"
                   minSdk 24
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0.0"
+                  versionCode 2
+                  versionName "1.1.0"
               }
 
               buildTypes {
@@ -84,6 +84,10 @@ jobs:
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
+          }
+
+          dependencies {
+              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
           }
           EOF
 
@@ -120,29 +124,50 @@ jobs:
           package com.hansom.yaoguradar;
 
           import android.app.Activity;
+          import android.content.Context;
           import android.content.Intent;
           import android.graphics.Color;
+          import android.net.ConnectivityManager;
+          import android.net.Network;
+          import android.net.NetworkCapabilities;
           import android.net.Uri;
           import android.os.Bundle;
+          import android.provider.Settings;
+          import android.view.Gravity;
           import android.view.View;
           import android.view.ViewGroup;
+          import android.webkit.CookieManager;
+          import android.webkit.ValueCallback;
           import android.webkit.WebChromeClient;
           import android.webkit.WebResourceError;
           import android.webkit.WebResourceRequest;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.Button;
           import android.widget.FrameLayout;
+          import android.widget.LinearLayout;
           import android.widget.ProgressBar;
+          import android.widget.TextView;
           import android.widget.Toast;
+
+          import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
           public class MainActivity extends Activity {
 
               private static final String APP_URL =
                       "https://restless-cloud-ea3c.hansomcui790528.workers.dev/";
+              private static final int FILE_CHOOSER_REQUEST = 1001;
 
               private WebView webView;
               private ProgressBar progressBar;
+              private SwipeRefreshLayout swipeRefresh;
+              private LinearLayout offlinePanel;
+              private TextView offlineText;
+              private ValueCallback<Uri[]> filePathCallback;
+              private ConnectivityManager connectivityManager;
+              private ConnectivityManager.NetworkCallback networkCallback;
+              private boolean mainFrameFailed = false;
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
@@ -151,34 +176,117 @@ jobs:
                   getWindow().setStatusBarColor(Color.rgb(201, 21, 30));
                   getWindow().setNavigationBarColor(Color.WHITE);
 
+                  buildUi();
+                  configureWebView();
+                  registerNetworkWatcher();
+
+                  if (savedInstanceState == null) {
+                      openHome();
+                  } else {
+                      webView.restoreState(savedInstanceState);
+                  }
+              }
+
+              private void buildUi() {
                   FrameLayout root = new FrameLayout(this);
-                  root.setBackgroundColor(Color.rgb(201, 21, 30));
+                  root.setBackgroundColor(Color.WHITE);
+
+                  swipeRefresh = new SwipeRefreshLayout(this);
+                  swipeRefresh.setColorSchemeColors(Color.rgb(201, 21, 30));
+                  swipeRefresh.setProgressBackgroundColorSchemeColor(Color.WHITE);
+                  swipeRefresh.setOnRefreshListener(() -> {
+                      hideOfflinePanel();
+                      mainFrameFailed = false;
+                      if (isOnline()) {
+                          webView.reload();
+                      } else {
+                          swipeRefresh.setRefreshing(false);
+                          showOfflinePanel("当前没有网络连接");
+                      }
+                  });
 
                   webView = new WebView(this);
                   webView.setBackgroundColor(Color.WHITE);
+                  swipeRefresh.addView(
+                          webView,
+                          new ViewGroup.LayoutParams(
+                                  ViewGroup.LayoutParams.MATCH_PARENT,
+                                  ViewGroup.LayoutParams.MATCH_PARENT));
 
                   progressBar = new ProgressBar(
                           this, null, android.R.attr.progressBarStyleHorizontal);
                   progressBar.setMax(100);
 
-                  FrameLayout.LayoutParams webParams = new FrameLayout.LayoutParams(
+                  FrameLayout.LayoutParams refreshParams = new FrameLayout.LayoutParams(
                           ViewGroup.LayoutParams.MATCH_PARENT,
                           ViewGroup.LayoutParams.MATCH_PARENT);
 
                   FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(
-                          ViewGroup.LayoutParams.MATCH_PARENT, 8);
+                          ViewGroup.LayoutParams.MATCH_PARENT, dp(3));
+                  progressParams.gravity = Gravity.TOP;
 
-                  root.addView(webView, webParams);
+                  offlinePanel = new LinearLayout(this);
+                  offlinePanel.setOrientation(LinearLayout.VERTICAL);
+                  offlinePanel.setGravity(Gravity.CENTER);
+                  offlinePanel.setPadding(dp(28), dp(28), dp(28), dp(28));
+                  offlinePanel.setBackgroundColor(Color.WHITE);
+                  offlinePanel.setVisibility(View.GONE);
+
+                  TextView icon = new TextView(this);
+                  icon.setText("⚡");
+                  icon.setTextSize(42);
+                  icon.setGravity(Gravity.CENTER);
+
+                  TextView title = new TextView(this);
+                  title.setText("妖股雷达暂时连不上");
+                  title.setTextColor(Color.rgb(35, 35, 35));
+                  title.setTextSize(20);
+                  title.setGravity(Gravity.CENTER);
+                  title.setPadding(0, dp(10), 0, dp(8));
+
+                  offlineText = new TextView(this);
+                  offlineText.setTextColor(Color.rgb(110, 110, 110));
+                  offlineText.setTextSize(14);
+                  offlineText.setGravity(Gravity.CENTER);
+                  offlineText.setText("请检查网络后重试");
+                  offlineText.setPadding(0, 0, 0, dp(20));
+
+                  Button retry = new Button(this);
+                  retry.setText("重新连接");
+                  retry.setTextSize(16);
+                  retry.setOnClickListener(v -> retryLoad());
+
+                  Button networkSettings = new Button(this);
+                  networkSettings.setText("网络设置");
+                  networkSettings.setTextSize(14);
+                  networkSettings.setOnClickListener(v -> {
+                      try {
+                          startActivity(new Intent(Settings.ACTION_WIRELESS_SETTINGS));
+                      } catch (Exception e) {
+                          startActivity(new Intent(Settings.ACTION_SETTINGS));
+                      }
+                  });
+
+                  offlinePanel.addView(icon);
+                  offlinePanel.addView(title);
+                  offlinePanel.addView(offlineText);
+                  offlinePanel.addView(
+                          retry,
+                          new LinearLayout.LayoutParams(dp(190), dp(52)));
+
+                  LinearLayout.LayoutParams settingsParams =
+                          new LinearLayout.LayoutParams(dp(190), dp(48));
+                  settingsParams.topMargin = dp(8);
+                  offlinePanel.addView(networkSettings, settingsParams);
+
+                  FrameLayout.LayoutParams offlineParams = new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT);
+
+                  root.addView(swipeRefresh, refreshParams);
                   root.addView(progressBar, progressParams);
+                  root.addView(offlinePanel, offlineParams);
                   setContentView(root);
-
-                  configureWebView();
-
-                  if (savedInstanceState == null) {
-                      webView.loadUrl(APP_URL);
-                  } else {
-                      webView.restoreState(savedInstanceState);
-                  }
               }
 
               private void configureWebView() {
@@ -193,8 +301,19 @@ jobs:
                   settings.setDisplayZoomControls(false);
                   settings.setMediaPlaybackRequiresUserGesture(true);
                   settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+                  settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  settings.setAllowFileAccess(false);
+                  settings.setAllowContentAccess(true);
                   settings.setUserAgentString(
-                          settings.getUserAgentString() + " YaoguRadarAndroid/1.0");
+                          settings.getUserAgentString() + " YaoguRadarAndroid/1.1");
+
+                  CookieManager cookies = CookieManager.getInstance();
+                  cookies.setAcceptCookie(true);
+                  cookies.setAcceptThirdPartyCookies(webView, true);
+
+                  webView.setDownloadListener(
+                          (url, userAgent, contentDisposition, mimetype, contentLength) ->
+                                  openExternal(Uri.parse(url)));
 
                   webView.setWebChromeClient(new WebChromeClient() {
                       @Override
@@ -202,6 +321,32 @@ jobs:
                           progressBar.setProgress(newProgress);
                           progressBar.setVisibility(
                                   newProgress >= 100 ? View.GONE : View.VISIBLE);
+                          if (newProgress >= 100) {
+                              swipeRefresh.setRefreshing(false);
+                          }
+                      }
+
+                      @Override
+                      public boolean onShowFileChooser(
+                              WebView webView,
+                              ValueCallback<Uri[]> filePathCallbackParam,
+                              FileChooserParams fileChooserParams) {
+                          if (filePathCallback != null) {
+                              filePathCallback.onReceiveValue(null);
+                          }
+                          filePathCallback = filePathCallbackParam;
+                          try {
+                              Intent intent = fileChooserParams.createIntent();
+                              startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+                              return true;
+                          } catch (Exception e) {
+                              filePathCallback = null;
+                              Toast.makeText(
+                                      MainActivity.this,
+                                      "无法打开文件选择器",
+                                      Toast.LENGTH_SHORT).show();
+                              return false;
+                          }
                       }
                   });
 
@@ -210,7 +355,17 @@ jobs:
                       public boolean shouldOverrideUrlLoading(
                               WebView view, WebResourceRequest request) {
                           Uri uri = request.getUrl();
+                          String scheme = uri.getScheme();
                           String host = uri.getHost();
+
+                          if (scheme != null &&
+                                  (scheme.equals("tel") ||
+                                          scheme.equals("mailto") ||
+                                          scheme.equals("sms") ||
+                                          scheme.equals("intent"))) {
+                              openExternal(uri);
+                              return true;
+                          }
 
                           if (host != null &&
                                   (host.equals("restless-cloud-ea3c.hansomcui790528.workers.dev")
@@ -218,11 +373,25 @@ jobs:
                               return false;
                           }
 
-                          try {
-                              startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                              return true;
-                          } catch (Exception e) {
-                              return false;
+                          openExternal(uri);
+                          return true;
+                      }
+
+                      @Override
+                      public void onPageStarted(
+                              WebView view, String url, android.graphics.Bitmap favicon) {
+                          super.onPageStarted(view, url, favicon);
+                          if (url != null && url.startsWith(APP_URL)) {
+                              mainFrameFailed = false;
+                          }
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          super.onPageFinished(view, url);
+                          swipeRefresh.setRefreshing(false);
+                          if (!mainFrameFailed) {
+                              hideOfflinePanel();
                           }
                       }
 
@@ -232,18 +401,135 @@ jobs:
                               WebResourceRequest request,
                               WebResourceError error) {
                           if (request.isForMainFrame()) {
-                              Toast.makeText(
-                                      MainActivity.this,
-                                      "网络连接失败，请检查网络后重试",
-                                      Toast.LENGTH_SHORT
-                              ).show();
+                              mainFrameFailed = true;
+                              swipeRefresh.setRefreshing(false);
+                              String message = isOnline()
+                                      ? "服务器连接失败，请稍后重试"
+                                      : "当前没有网络连接";
+                              showOfflinePanel(message);
                           }
                       }
                   });
               }
 
+              private void openHome() {
+                  if (isOnline()) {
+                      hideOfflinePanel();
+                      webView.loadUrl(APP_URL);
+                  } else {
+                      showOfflinePanel("当前没有网络连接");
+                  }
+              }
+
+              private void retryLoad() {
+                  if (!isOnline()) {
+                      showOfflinePanel("当前没有网络连接");
+                      Toast.makeText(this, "网络仍未连接", Toast.LENGTH_SHORT).show();
+                      return;
+                  }
+                  hideOfflinePanel();
+                  mainFrameFailed = false;
+                  swipeRefresh.setRefreshing(true);
+                  String current = webView.getUrl();
+                  if (current == null ||
+                          current.trim().isEmpty() ||
+                          current.startsWith("about:")) {
+                      webView.loadUrl(APP_URL);
+                  } else {
+                      webView.reload();
+                  }
+              }
+
+              private boolean isOnline() {
+                  ConnectivityManager cm = (ConnectivityManager)
+                          getSystemService(Context.CONNECTIVITY_SERVICE);
+                  if (cm == null) return false;
+                  Network network = cm.getActiveNetwork();
+                  if (network == null) return false;
+                  NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                  return caps != null &&
+                          caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+              }
+
+              private void registerNetworkWatcher() {
+                  connectivityManager = (ConnectivityManager)
+                          getSystemService(Context.CONNECTIVITY_SERVICE);
+                  if (connectivityManager == null) return;
+
+                  networkCallback = new ConnectivityManager.NetworkCallback() {
+                      @Override
+                      public void onAvailable(Network network) {
+                          runOnUiThread(() -> {
+                              if (offlinePanel.getVisibility() == View.VISIBLE || mainFrameFailed) {
+                                  retryLoad();
+                              }
+                          });
+                      }
+
+                      @Override
+                      public void onLost(Network network) {
+                          runOnUiThread(() -> {
+                              if (!isOnline()) {
+                                  showOfflinePanel("网络连接已断开");
+                              }
+                          });
+                      }
+                  };
+
+                  try {
+                      connectivityManager.registerDefaultNetworkCallback(networkCallback);
+                  } catch (Exception ignored) {
+                  }
+              }
+
+              private void openExternal(Uri uri) {
+                  try {
+                      startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                  } catch (Exception e) {
+                      Toast.makeText(
+                              this,
+                              "没有可打开此链接的应用",
+                              Toast.LENGTH_SHORT).show();
+                  }
+              }
+
+              private void showOfflinePanel(String message) {
+                  offlineText.setText(message);
+                  offlinePanel.setVisibility(View.VISIBLE);
+                  progressBar.setVisibility(View.GONE);
+              }
+
+              private void hideOfflinePanel() {
+                  offlinePanel.setVisibility(View.GONE);
+              }
+
+              private int dp(int value) {
+                  float density = getResources().getDisplayMetrics().density;
+                  return Math.round(value * density);
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == FILE_CHOOSER_REQUEST && filePathCallback != null) {
+                      Uri[] results =
+                              WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                      filePathCallback.onReceiveValue(results);
+                      filePathCallback = null;
+                  }
+              }
+
               @Override
               public void onBackPressed() {
+                  if (offlinePanel != null &&
+                          offlinePanel.getVisibility() == View.VISIBLE) {
+                      hideOfflinePanel();
+                      if (webView.getUrl() == null) {
+                          openHome();
+                      }
+                      return;
+                  }
+
                   if (webView != null && webView.canGoBack()) {
                       webView.goBack();
                   } else {
@@ -261,6 +547,18 @@ jobs:
 
               @Override
               protected void onDestroy() {
+                  if (connectivityManager != null && networkCallback != null) {
+                      try {
+                          connectivityManager.unregisterNetworkCallback(networkCallback);
+                      } catch (Exception ignored) {
+                      }
+                  }
+
+                  if (filePathCallback != null) {
+                      filePathCallback.onReceiveValue(null);
+                      filePathCallback = null;
+                  }
+
                   if (webView != null) {
                       webView.stopLoading();
                       webView.setWebChromeClient(null);
@@ -276,7 +574,7 @@ jobs:
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <string name="app_name">妖股雷达 V3</string>
+              <string name="app_name">妖股雷达 V3.1</string>
           </resources>
           EOF
 
@@ -290,7 +588,7 @@ jobs:
                   <item name="android:statusBarColor">#C9151E</item>
                   <item name="android:navigationBarColor">#FFFFFF</item>
                   <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:windowBackground">#C9151E</item>
+                  <item name="android:windowBackground">#FFFFFF</item>
               </style>
           </resources>
           EOF
@@ -312,24 +610,16 @@ jobs:
           EOF
 
       - name: Set up Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -e
-          export ANDROID_HOME=/usr/local/lib/android/sdk
-          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -342,12 +632,12 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/yaogu-radar-v3.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/yaogu-radar-v3.1.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: yaogu-radar-v3-apk
-          path: dist/yaogu-radar-v3.apk
+          name: yaogu-radar-v3.1-apk
+          path: dist/yaogu-radar-v3.1.apk
           if-no-files-found: error
           retention-days: 30
