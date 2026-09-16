@@ -1,0 +1,345 @@
+name: Build Yaogu Radar APK
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create Android project
+        shell: bash
+        run: |
+          set -e
+          mkdir -p app/src/main/java/com/hansom/yaoguradar
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "YaoguRadar"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.hansom.yaoguradar'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.hansom.yaoguradar"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0.0"
+              }
+
+              buildTypes {
+                  debug {
+                      debuggable true
+                  }
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:hardwareAccelerated="true"
+                  android:icon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="keyboardHidden|orientation|screenSize"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/hansom/yaoguradar/MainActivity.java <<'EOF'
+          package com.hansom.yaoguradar;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.ProgressBar;
+          import android.widget.Toast;
+
+          public class MainActivity extends Activity {
+
+              private static final String APP_URL =
+                      "https://restless-cloud-ea3c.hansomcui790528.workers.dev/";
+
+              private WebView webView;
+              private ProgressBar progressBar;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  getWindow().setStatusBarColor(Color.rgb(201, 21, 30));
+                  getWindow().setNavigationBarColor(Color.WHITE);
+
+                  FrameLayout root = new FrameLayout(this);
+                  root.setBackgroundColor(Color.rgb(201, 21, 30));
+
+                  webView = new WebView(this);
+                  webView.setBackgroundColor(Color.WHITE);
+
+                  progressBar = new ProgressBar(
+                          this, null, android.R.attr.progressBarStyleHorizontal);
+                  progressBar.setMax(100);
+
+                  FrameLayout.LayoutParams webParams = new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT);
+
+                  FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT, 8);
+
+                  root.addView(webView, webParams);
+                  root.addView(progressBar, progressParams);
+                  setContentView(root);
+
+                  configureWebView();
+
+                  if (savedInstanceState == null) {
+                      webView.loadUrl(APP_URL);
+                  } else {
+                      webView.restoreState(savedInstanceState);
+                  }
+              }
+
+              private void configureWebView() {
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setLoadWithOverviewMode(true);
+                  settings.setUseWideViewPort(true);
+                  settings.setSupportZoom(false);
+                  settings.setBuiltInZoomControls(false);
+                  settings.setDisplayZoomControls(false);
+                  settings.setMediaPlaybackRequiresUserGesture(true);
+                  settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+                  settings.setUserAgentString(
+                          settings.getUserAgentString() + " YaoguRadarAndroid/1.0");
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onProgressChanged(WebView view, int newProgress) {
+                          progressBar.setProgress(newProgress);
+                          progressBar.setVisibility(
+                                  newProgress >= 100 ? View.GONE : View.VISIBLE);
+                      }
+                  });
+
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(
+                              WebView view, WebResourceRequest request) {
+                          Uri uri = request.getUrl();
+                          String host = uri.getHost();
+
+                          if (host != null &&
+                                  (host.equals("restless-cloud-ea3c.hansomcui790528.workers.dev")
+                                          || host.endsWith(".workers.dev"))) {
+                              return false;
+                          }
+
+                          try {
+                              startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                              return true;
+                          } catch (Exception e) {
+                              return false;
+                          }
+                      }
+
+                      @Override
+                      public void onReceivedError(
+                              WebView view,
+                              WebResourceRequest request,
+                              WebResourceError error) {
+                          if (request.isForMainFrame()) {
+                              Toast.makeText(
+                                      MainActivity.this,
+                                      "网络连接失败，请检查网络后重试",
+                                      Toast.LENGTH_SHORT
+                              ).show();
+                          }
+                      }
+                  });
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle outState) {
+                  if (webView != null) {
+                      webView.saveState(outState);
+                  }
+                  super.onSaveInstanceState(outState);
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (webView != null) {
+                      webView.stopLoading();
+                      webView.setWebChromeClient(null);
+                      webView.setWebViewClient(null);
+                      webView.destroy();
+                      webView = null;
+                  }
+                  super.onDestroy();
+              }
+          }
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">妖股雷达 V3</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:colorAccent">#D71920</item>
+                  <item name="android:statusBarColor">#C9151E</item>
+                  <item name="android:navigationBarColor">#FFFFFF</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowBackground">#C9151E</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#C9151E"
+                  android:pathData="M0,0H108V108H0Z" />
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M62,8 L25,59 L49,59 L42,100 L84,45 L59,45 Z" />
+          </vector>
+          EOF
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build debug APK
+        run: gradle --no-daemon clean assembleDebug
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/yaogu-radar-v3.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaogu-radar-v3-apk
+          path: dist/yaogu-radar-v3.apk
+          if-no-files-found: error
+          retention-days: 30
