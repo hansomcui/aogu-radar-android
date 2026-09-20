@@ -1,0 +1,612 @@
+name: Build VoiceForge APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/voiceforge-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create VoiceForge Android project
+        shell: bash
+        run: |
+          set -e
+          mkdir -p app/src/main/java/com/hansom/voiceforge app/src/main/assets app/src/main/res/values app/src/main/res/drawable
+          cat > settings.gradle <<'EOF_SETTINGS'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "VoiceForge"
+          include(":app")
+          EOF_SETTINGS
+
+          cat > build.gradle <<'EOF_ROOT'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          EOF_ROOT
+
+          cat > gradle.properties <<'EOF_PROPS'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF_PROPS
+
+          cat > app/build.gradle <<'EOF_APP'
+          plugins {
+              id 'com.android.application'
+          }
+          
+          android {
+              namespace 'com.hansom.voiceforge'
+              compileSdk 34
+          
+              defaultConfig {
+                  applicationId "com.hansom.voiceforge"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "0.1.0"
+              }
+          
+              buildTypes {
+                  debug { debuggable true }
+                  release { minifyEnabled false }
+              }
+          
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          
+          dependencies {
+              implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+          }
+          EOF_APP
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF_MANIFEST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
+          
+              <application
+                  android:allowBackup="true"
+                  android:hardwareAccelerated="true"
+                  android:icon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:configChanges="keyboardHidden|orientation|screenSize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF_MANIFEST
+
+          cat > app/src/main/java/com/hansom/voiceforge/MainActivity.java <<'EOF_JAVA'
+          package com.hansom.voiceforge;
+          
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.media.MediaPlayer;
+          import android.media.MediaRecorder;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.speech.tts.TextToSpeech;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          
+          import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
+          import com.tom_roush.pdfbox.pdmodel.PDDocument;
+          import com.tom_roush.pdfbox.text.PDFTextStripper;
+          
+          import java.io.*;
+          import java.nio.charset.StandardCharsets;
+          import java.util.Locale;
+          import java.util.zip.ZipEntry;
+          import java.util.zip.ZipInputStream;
+          
+          public class MainActivity extends Activity implements TextToSpeech.OnInitListener {
+              private static final int REQ_AUDIO = 501;
+              private static final int REQ_DOC = 502;
+          
+              private WebView webView;
+              private TextToSpeech tts;
+              private MediaRecorder recorder;
+              private MediaPlayer player;
+              private File lastSample;
+              private long recordStart = 0;
+          
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().setStatusBarColor(android.graphics.Color.rgb(11,11,12));
+                  getWindow().setNavigationBarColor(android.graphics.Color.rgb(11,11,12));
+                  PDFBoxResourceLoader.init(getApplicationContext());
+          
+                  webView = new WebView(this);
+                  setContentView(webView);
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowContentAccess(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setDefaultTextEncodingName("utf-8");
+          
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient());
+                  webView.addJavascriptInterface(new Bridge(), "Android");
+                  webView.loadUrl("file:///android_asset/index.html");
+          
+                  tts = new TextToSpeech(this, this);
+              }
+          
+              @Override
+              public void onInit(int status) {
+                  if (status == TextToSpeech.SUCCESS) {
+                      tts.setLanguage(Locale.SIMPLIFIED_CHINESE);
+                  }
+              }
+          
+              private void js(String code) {
+                  runOnUiThread(() -> webView.evaluateJavascript(code, null));
+              }
+          
+              public class Bridge {
+                  @JavascriptInterface
+                  public void startRecording() {
+                      runOnUiThread(() -> {
+                          if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                              requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+                              return;
+                          }
+                          reallyStartRecording();
+                      });
+                  }
+          
+                  @JavascriptInterface
+                  public void stopRecording() {
+                      runOnUiThread(() -> reallyStopRecording());
+                  }
+          
+                  @JavascriptInterface
+                  public void playSample() {
+                      runOnUiThread(() -> {
+                          if (lastSample == null || !lastSample.exists()) {
+                              Toast.makeText(MainActivity.this, "还没有录制声音样本", Toast.LENGTH_SHORT).show();
+                              return;
+                          }
+                          try {
+                              if (player != null) player.release();
+                              player = new MediaPlayer();
+                              player.setDataSource(lastSample.getAbsolutePath());
+                              player.prepare();
+                              player.start();
+                          } catch (Exception e) {
+                              Toast.makeText(MainActivity.this, "样本播放失败", Toast.LENGTH_SHORT).show();
+                          }
+                      });
+                  }
+          
+                  @JavascriptInterface
+                  public void pickDocument() {
+                      runOnUiThread(() -> {
+                          Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                          i.addCategory(Intent.CATEGORY_OPENABLE);
+                          i.setType("*/*");
+                          i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                                  "text/plain",
+                                  "text/markdown",
+                                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                  "application/pdf"
+                          });
+                          startActivityForResult(i, REQ_DOC);
+                      });
+                  }
+          
+                  @JavascriptInterface
+                  public void speak(String text, String style, float intensity, float speed, float warmth, float power) {
+                      runOnUiThread(() -> {
+                          if (tts == null || text == null || text.trim().isEmpty()) return;
+                          float rate = clamp(speed, 0.65f, 1.35f);
+                          float pitch = 1.0f;
+          
+                          switch (style) {
+                              case "深沉克制": pitch = 0.78f; rate *= 0.88f; break;
+                              case "机智勇敢": pitch = 1.04f; rate *= 1.06f; break;
+                              case "深情慈悲": pitch = 0.93f; rate *= 0.90f; break;
+                              case "嚣张跋扈": pitch = 0.86f; rate *= 0.98f; break;
+                              case "风流倜傥": pitch = 1.00f; rate *= 0.96f; break;
+                              case "雄浑壮烈": pitch = 0.82f; rate *= 0.92f; break;
+                          }
+                          float strength = clamp(intensity / 100f, 0f, 1f);
+                          pitch += (warmth - 50f) / 500f * strength;
+                          rate += (power - 50f) / 700f * strength;
+          
+                          tts.setPitch(clamp(pitch, 0.6f, 1.4f));
+                          tts.setSpeechRate(clamp(rate, 0.6f, 1.4f));
+                          tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "voiceforge-demo");
+                      });
+                  }
+          
+                  @JavascriptInterface
+                  public void stopSpeaking() {
+                      runOnUiThread(() -> { if (tts != null) tts.stop(); });
+                  }
+          
+                  @JavascriptInterface
+                  public String providerStatus() {
+                      return "演示模式：系统TTS。真实声音克隆需连接你自己的服务器语音引擎。";
+                  }
+          
+                  private float clamp(float v, float min, float max) {
+                      return Math.max(min, Math.min(max, v));
+                  }
+              }
+          
+              private void reallyStartRecording() {
+                  try {
+                      if (recorder != null) return;
+                      lastSample = new File(getCacheDir(), "voice_sample_" + System.currentTimeMillis() + ".m4a");
+                      recorder = new MediaRecorder();
+                      recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                      recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                      recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+                      recorder.setAudioEncodingBitRate(128000);
+                      recorder.setAudioSamplingRate(44100);
+                      recorder.setOutputFile(lastSample.getAbsolutePath());
+                      recorder.prepare();
+                      recorder.start();
+                      recordStart = System.currentTimeMillis();
+                      js("window.onRecordingStarted && window.onRecordingStarted()");
+                  } catch (Exception e) {
+                      recorder = null;
+                      Toast.makeText(this, "录音启动失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                  }
+              }
+          
+              private void reallyStopRecording() {
+                  if (recorder == null) return;
+                  try {
+                      recorder.stop();
+                      long ms = Math.max(0, System.currentTimeMillis() - recordStart);
+                      recorder.release();
+                      recorder = null;
+                      js("window.onRecordingStopped && window.onRecordingStopped(" + ms + ")");
+                  } catch (Exception e) {
+                      try { recorder.release(); } catch (Exception ignored) {}
+                      recorder = null;
+                  }
+              }
+          
+              @Override
+              public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                  if (requestCode == REQ_AUDIO && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                      reallyStartRecording();
+                  } else if (requestCode == REQ_AUDIO) {
+                      Toast.makeText(this, "需要麦克风权限才能创建声音样本", Toast.LENGTH_LONG).show();
+                  }
+              }
+          
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == REQ_DOC && resultCode == RESULT_OK && data != null && data.getData() != null) {
+                      Uri uri = data.getData();
+                      new Thread(() -> {
+                          try {
+                              String name = getFileName(uri);
+                              String lower = name.toLowerCase(Locale.ROOT);
+                              String text;
+                              if (lower.endsWith(".docx")) text = extractDocx(uri);
+                              else if (lower.endsWith(".pdf")) text = extractPdf(uri);
+                              else text = readText(uri);
+          
+                              String payload = jsonEscape(text);
+                              String fileName = jsonEscape(name);
+                              js("window.onDocumentImported && window.onDocumentImported(\"" + fileName + "\",\"" + payload + "\")");
+                          } catch (Exception e) {
+                              String msg = jsonEscape("文档读取失败：" + e.getMessage());
+                              js("window.onImportError && window.onImportError(\"" + msg + "\")");
+                          }
+                      }).start();
+                  }
+              }
+          
+              private String getFileName(Uri uri) {
+                  String result = "文档";
+                  android.database.Cursor c = getContentResolver().query(uri, null, null, null, null);
+                  if (c != null) {
+                      int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                      if (idx >= 0 && c.moveToFirst()) result = c.getString(idx);
+                      c.close();
+                  }
+                  return result == null ? "文档" : result;
+              }
+          
+              private String readText(Uri uri) throws Exception {
+                  InputStream in = getContentResolver().openInputStream(uri);
+                  if (in == null) throw new IOException("无法打开文件");
+                  ByteArrayOutputStream out = new ByteArrayOutputStream();
+                  byte[] buf = new byte[8192];
+                  int n;
+                  while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                  in.close();
+                  return out.toString(StandardCharsets.UTF_8.name());
+              }
+          
+              private String extractDocx(Uri uri) throws Exception {
+                  InputStream in = getContentResolver().openInputStream(uri);
+                  if (in == null) throw new IOException("无法打开DOCX");
+                  ZipInputStream zis = new ZipInputStream(in);
+                  ZipEntry entry;
+                  String xml = null;
+                  while ((entry = zis.getNextEntry()) != null) {
+                      if ("word/document.xml".equals(entry.getName())) {
+                          ByteArrayOutputStream out = new ByteArrayOutputStream();
+                          byte[] buf = new byte[8192];
+                          int n;
+                          while ((n = zis.read(buf)) != -1) out.write(buf, 0, n);
+                          xml = out.toString(StandardCharsets.UTF_8.name());
+                          break;
+                      }
+                  }
+                  zis.close();
+                  if (xml == null) throw new IOException("DOCX正文不存在");
+                  xml = xml.replace("</w:p>", "\n")
+                           .replace("</w:tr>", "\n")
+                           .replace("</w:tc>", "\t");
+                  return xml.replaceAll("<[^>]+>", "")
+                            .replace("&amp;", "&")
+                            .replace("&lt;", "<")
+                            .replace("&gt;", ">")
+                            .replace("&quot;", "\"")
+                            .replace("&#39;", "'")
+                            .replaceAll("\n{3,}", "\n\n")
+                            .trim();
+              }
+          
+              private String extractPdf(Uri uri) throws Exception {
+                  InputStream in = getContentResolver().openInputStream(uri);
+                  if (in == null) throw new IOException("无法打开PDF");
+                  PDDocument doc = PDDocument.load(in);
+                  String text = new PDFTextStripper().getText(doc);
+                  doc.close();
+                  in.close();
+                  return text == null ? "" : text.trim();
+              }
+          
+              private String jsonEscape(String s) {
+                  if (s == null) return "";
+                  return s.replace("\\", "\\\\")
+                          .replace("\"", "\\\"")
+                          .replace("\r", "")
+                          .replace("\n", "\\n")
+                          .replace("\t", "\\t");
+              }
+          
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) webView.goBack();
+                  else super.onBackPressed();
+              }
+          
+              @Override
+              protected void onDestroy() {
+                  reallyStopRecording();
+                  if (tts != null) { tts.stop(); tts.shutdown(); }
+                  if (player != null) player.release();
+                  if (webView != null) webView.destroy();
+                  super.onDestroy();
+              }
+          }
+          EOF_JAVA
+
+          cat > app/src/main/assets/index.html <<'EOF_HTML'
+          <!doctype html>
+          <html lang="zh-CN">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+          <title>声魄 VoiceForge</title>
+          <style>
+          :root{--bg:#0b0b0c;--panel:#141416;--panel2:#1a1a1d;--text:#f2eee6;--muted:#99948b;--red:#9e2625;--gold:#d8b77a;--line:#2a2928}
+          *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans SC","Microsoft YaHei",sans-serif}
+          .app{max-width:760px;margin:auto;padding:20px 16px 100px}.brand{display:flex;align-items:center;gap:10px;margin:4px 0 22px}.logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(145deg,#441514,#111);border:1px solid #5e3e2c;display:grid;place-items:center;color:var(--gold);font-weight:800}.brand b{font-size:19px;letter-spacing:.5px}.brand small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+          .hero{padding:18px 2px 22px}.hero h1{font-size:34px;line-height:1.12;margin:0 0 12px;letter-spacing:-1px}.hero p{color:#b9b2a6;line-height:1.7;margin:0}
+          .card{background:linear-gradient(180deg,var(--panel),#111113);border:1px solid var(--line);border-radius:20px;padding:16px;margin:12px 0;box-shadow:0 12px 30px rgba(0,0,0,.18)}
+          .card h2{font-size:17px;margin:0 0 5px}.sub{color:var(--muted);font-size:12px;line-height:1.55}
+          .row{display:flex;gap:10px;flex-wrap:wrap}.btn{border:0;border-radius:14px;padding:12px 15px;font-size:14px;font-weight:700;background:#242326;color:var(--text)}.btn.primary{background:linear-gradient(135deg,#a92c29,#701b1a)}.btn.gold{background:linear-gradient(135deg,#d8b77a,#a27c43);color:#16120d}.btn:active{transform:scale(.98)}
+          .status{padding:10px 12px;border:1px solid #423b30;border-radius:12px;background:#171512;color:#cdbd9e;font-size:12px;margin-top:12px}
+          .wave{height:58px;border-radius:12px;background:repeating-linear-gradient(90deg,#3d2925 0 2px,transparent 2px 7px),linear-gradient(180deg,#171719,#111);opacity:.85;margin:12px 0}.recording{outline:1px solid #9e2625;box-shadow:0 0 0 4px rgba(158,38,37,.10)}
+          .styles{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.style{padding:13px;border:1px solid var(--line);border-radius:15px;background:#171719}.style.active{border-color:#8f6f42;background:linear-gradient(145deg,#2b241a,#171719)}.style b{font-size:14px}.style p{font-size:11px;color:var(--muted);line-height:1.45;margin:6px 0 0}
+          label.range{display:block;font-size:12px;color:#c8c1b7;margin:14px 0 4px}.rangehead{display:flex;justify-content:space-between}.rangehead span:last-child{color:var(--gold)}input[type=range]{width:100%;accent-color:#a22a27}
+          textarea{width:100%;min-height:220px;background:#0e0e10;color:var(--text);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:15px;line-height:1.7;resize:vertical;outline:none}.docmeta{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin:8px 2px 0}
+          .nav{position:fixed;left:0;right:0;bottom:0;background:rgba(12,12,13,.96);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 8px 15px}.nav button{background:none;border:0;color:#77736d;font-size:11px}.nav button.active{color:var(--gold)}
+          .consent{display:flex;gap:9px;align-items:flex-start;font-size:12px;color:#aaa49a;line-height:1.5}.consent input{margin-top:2px;accent-color:#a22a27}
+          .notice{font-size:11px;color:#847f77;line-height:1.55;margin-top:10px}.screen{display:none}.screen.active{display:block}
+          @media(max-width:380px){.hero h1{font-size:30px}.styles{grid-template-columns:1fr}.btn{padding:11px 12px}}
+          </style>
+          </head>
+          <body>
+          <div class="app">
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>VOICE IDENTITY × PERFORMANCE</small></div></div>
+          
+            <section id="home" class="screen active">
+              <div class="hero"><h1>让文字，<br>用你的声音活起来。</h1><p>提取音色，设计情绪，把一份文档演成一段声音。</p></div>
+              <div class="card"><h2>01 · 建立我的音色</h2><div class="sub">建议录制 30–90 秒安静、清晰、连续的人声。</div><div id="wave" class="wave"></div>
+                <div class="row"><button class="btn primary" id="recBtn" onclick="toggleRecord()">● 开始录音</button><button class="btn" onclick="Android.playSample()">▶ 播放样本</button></div>
+                <div id="recInfo" class="status">尚未录制声音样本</div>
+                <div class="consent" style="margin-top:12px"><input id="consent" type="checkbox"><label for="consent">我确认拥有该声音，或已获得声音所有者明确授权。</label></div>
+              </div>
+              <div class="card"><h2>02 · 导入要朗读的文档</h2><div class="sub">支持 TXT / MD / DOCX / PDF。扫描版 PDF 暂不做 OCR。</div><div class="row" style="margin-top:12px"><button class="btn gold" onclick="Android.pickDocument()">＋ 选择文档</button><button class="btn" onclick="go('studio')">直接粘贴文字</button></div><div id="docInfo" class="status">还没有导入文档</div></div>
+              <div class="card"><h2>03 · 进入导演台</h2><div class="sub">同一个声音，可以用完全不同的方式说话。</div><button class="btn primary" style="width:100%;margin-top:12px" onclick="go('studio')">打开导演台 →</button></div>
+            </section>
+          
+            <section id="studio" class="screen">
+              <div class="card"><h2>朗读脚本</h2><div class="sub">可编辑导入结果，也可以直接粘贴。</div><textarea id="script" placeholder="把要朗读的文字粘贴到这里……"></textarea><div class="docmeta"><span id="chars">0 字</span><span id="eta">预计 0 分钟</span></div></div>
+              <div class="card"><h2>导演台</h2><div class="sub">选择一种演绎人格，再调整力度。</div><div class="styles" id="styles"></div>
+                <div id="sliders"></div>
+                <div class="row" style="margin-top:16px"><button class="btn gold" onclick="preview()">试听前20秒</button><button class="btn primary" onclick="fullSpeak()">生成 / 播放整篇</button><button class="btn" onclick="Android.stopSpeaking()">停止</button></div>
+                <div class="notice">当前 APK 内置的是“演示音色”：使用手机系统 TTS 验证流程，不冒充声音克隆。真正复制你的音色时，需要把 App 连接到服务器端语音克隆引擎；服务商密钥不应放在手机里。</div>
+              </div>
+            </section>
+          
+            <section id="voices" class="screen">
+              <div class="hero"><h1 style="font-size:29px">我的音色</h1><p>声音身份与表演方式分开管理。</p></div>
+              <div class="card"><h2>本机声音样本</h2><div id="voiceLibrary" class="status">尚未创建</div><button class="btn" style="margin-top:12px" onclick="go('home')">去录制</button></div>
+              <div class="card"><h2>真实克隆引擎</h2><div class="status" id="provider">读取中…</div><div class="notice">下一版可接 ElevenLabs、Fish Audio 或你自己的企业语音模型，建议统一通过服务器代理。</div></div>
+            </section>
+          
+            <section id="me" class="screen"><div class="hero"><h1 style="font-size:29px">关于声魄</h1><p>这是 Android 原生安装版 v0.1。</p></div><div class="card"><h2>隐私原则</h2><div class="sub">声音样本默认只保存在本机缓存；只有连接你自己的服务器语音引擎后，才会按你的操作上传。删除 App 会清理应用数据。</div></div><div class="card"><h2>版本状态</h2><div class="status">v0.1 · Android APK · 演示音色流程可用<br>下一阶段：真实声音克隆、云端项目、MP3/WAV 导出。</div></div></section>
+          </div>
+          
+          <nav class="nav">
+          <button class="active" data-go="home" onclick="go('home')">⌂<br>首页</button>
+          <button data-go="voices" onclick="go('voices')">◉<br>音色</button>
+          <button data-go="studio" onclick="go('studio')">✦<br>导演台</button>
+          <button data-go="me" onclick="go('me')">☰<br>我的</button>
+          </nav>
+          
+          <script>
+          const presetData=[
+          ["深沉克制","低沉、稳、少炫技，情绪藏在字后面。"],
+          ["机智勇敢","节奏明快，判断果断，带一点锋利和幽默。"],
+          ["深情慈悲","温暖、悲悯、有呼吸感，不煽情但能打动人。"],
+          ["嚣张跋扈","强势、压迫、带挑衅感，句尾有控制力。"],
+          ["风流倜傥","松弛、自信、潇洒，带一点漫不经心的魅力。"],
+          ["雄浑壮烈","宽阔、燃、厚重，有史诗感和向前推进的力量。"]
+          ];
+          let selected="深沉克制", recording=false;
+          const params={intensity:72,speed:0.92,pause:55,warmth:48,power:72};
+          function go(id){document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('active',x.id===id));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.go===id));scrollTo(0,0)}
+          function buildStyles(){const el=document.getElementById('styles');el.innerHTML=presetData.map(([n,d])=>`<div class="style ${n===selected?'active':''}" onclick="selectStyle('${n}')"><b>${n}</b><p>${d}</p></div>`).join('')}
+          function selectStyle(n){selected=n;buildStyles()}
+          function slider(name,label,min,max,step){return `<label class="range"><div class="rangehead"><span>${label}</span><span id="${name}v">${params[name]}</span></div><input type="range" min="${min}" max="${max}" step="${step}" value="${params[name]}" oninput="params.${name}=+this.value;document.getElementById('${name}v').textContent=this.value"></label>`}
+          document.getElementById('sliders').innerHTML=slider('intensity','风格强度',0,100,1)+slider('speed','语速',0.7,1.3,0.01)+slider('pause','停顿',0,100,1)+slider('warmth','情绪温度',0,100,1)+slider('power','声音力量',0,100,1);
+          buildStyles();
+          const script=document.getElementById('script');
+          script.addEventListener('input',()=>{const n=script.value.replace(/\s/g,'').length;document.getElementById('chars').textContent=n+' 字';document.getElementById('eta').textContent='预计 '+(n?Math.max(1,Math.ceil(n/260)):0)+' 分钟'});
+          function toggleRecord(){if(!document.getElementById('consent').checked){alert('请先确认声音授权。');return} if(!recording){Android.startRecording()}else{Android.stopRecording()}}
+          window.onRecordingStarted=()=>{recording=true;document.getElementById('recBtn').textContent='■ 停止录音';document.getElementById('wave').classList.add('recording');document.getElementById('recInfo').textContent='正在录音… 尽量保持环境安静'};
+          window.onRecordingStopped=(ms)=>{recording=false;document.getElementById('recBtn').textContent='● 重新录音';document.getElementById('wave').classList.remove('recording');const sec=Math.round(ms/1000);document.getElementById('recInfo').textContent=`已保存本机声音样本 · ${sec} 秒`;document.getElementById('voiceLibrary').textContent=`我的样本 · ${sec} 秒 · 本机私有`;localStorage.setItem('voiceSample','1')};
+          window.onDocumentImported=(name,text)=>{script.value=text;script.dispatchEvent(new Event('input'));document.getElementById('docInfo').textContent=`已导入：${name} · ${text.length} 字符`;go('studio')};
+          window.onImportError=(m)=>alert(m);
+          function preview(){const t=script.value.trim();if(!t){alert('请先导入或粘贴文字');return}Android.speak(t.slice(0,120),selected,params.intensity,params.speed,params.warmth,params.power)}
+          function fullSpeak(){const t=script.value.trim();if(!t){alert('请先导入或粘贴文字');return}Android.speak(t,selected,params.intensity,params.speed,params.warmth,params.power)}
+          try{document.getElementById('provider').textContent=Android.providerStatus()}catch(e){document.getElementById('provider').textContent='演示模式'}
+          if(localStorage.getItem('voiceSample'))document.getElementById('voiceLibrary').textContent='已有本机声音样本';
+          </script>
+          </body>
+          </html>
+          EOF_HTML
+
+          cat > app/src/main/res/values/strings.xml <<'EOF_STRINGS'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">声魄 VoiceForge</string>
+          </resources>
+          EOF_STRINGS
+
+          cat > app/src/main/res/values/styles.xml <<'EOF_STYLES'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:colorAccent">#A92725</item>
+                  <item name="android:statusBarColor">#0B0B0C</item>
+                  <item name="android:navigationBarColor">#0B0B0C</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowBackground">#0B0B0C</item>
+              </style>
+          </resources>
+          EOF_STYLES
+
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF_ICON'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#0B0B0C" android:pathData="M0,0H108V108H0Z"/>
+              <path android:fillColor="#D8B77A"
+                  android:pathData="M23,55 C31,55 31,30 39,30 C47,30 47,78 55,78 C63,78 63,20 71,20 C79,20 79,62 87,62 L87,69 C75,69 75,43 71,43 C67,43 67,88 55,88 C43,88 43,43 39,43 C35,43 35,62 23,62 Z"/>
+              <path android:fillColor="#9E2625"
+                  android:pathData="M51,12 C60,25 60,34 54,41 C69,38 76,29 72,18 C86,33 84,52 70,60 C64,64 60,68 58,75 C51,66 44,62 40,55 C32,43 37,25 51,12 Z"/>
+          </vector>
+          EOF_ICON
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -e
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1); fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build APK
+        run: gradle --no-daemon clean assembleDebug
+
+      - name: Package APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/VoiceForge-v0.1.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceForge-v0.1-APK
+          path: dist/VoiceForge-v0.1.apk
+          if-no-files-found: error
+          retention-days: 30
