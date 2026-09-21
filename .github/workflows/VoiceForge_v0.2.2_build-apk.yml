@@ -1,0 +1,646 @@
+name: Build VoiceForge v0.2.2 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/VoiceForge_v0.2.2_build-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create VoiceForge v0.2.2 project
+        shell: bash
+        run: |
+          set -e
+          mkdir -p app/src/main/java/com/hansom/voiceforge app/src/main/assets app/src/main/res/values app/src/main/res/drawable
+          cat > settings.gradle <<'EOF_SETTINGS'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "VoiceForge"
+          include(":app")
+          EOF_SETTINGS
+
+          cat > build.gradle <<'EOF_ROOT'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF_ROOT
+
+          cat > gradle.properties <<'EOF_PROPS'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF_PROPS
+
+          cat > app/build.gradle <<'EOF_APP'
+          plugins {
+              id 'com.android.application'
+          }
+          
+          android {
+              namespace 'com.hansom.voiceforge'
+              compileSdk 34
+          
+              defaultConfig {
+                  applicationId "com.hansom.voiceforge"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 4
+                  versionName "0.2.2"
+              }
+          
+              buildTypes {
+                  debug { debuggable true }
+                  release { minifyEnabled false }
+              }
+          
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          
+          dependencies {
+              implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+          }
+          EOF_APP
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF_MANIFEST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <queries><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent></queries>
+              <application android:allowBackup="true" android:hardwareAccelerated="true" android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:supportsRtl="true" android:theme="@style/AppTheme" android:usesCleartextTraffic="false">
+                  <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait" android:configChanges="keyboardHidden|orientation|screenSize">
+                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF_MANIFEST
+
+          cat > app/src/main/java/com/hansom/voiceforge/MainActivity.java <<'EOF_JAVA'
+          package com.hansom.voiceforge;
+          
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
+          import android.database.Cursor;
+          import android.media.MediaPlayer;
+          import android.media.MediaRecorder;
+          import android.media.MediaMetadataRetriever;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.provider.OpenableColumns;
+          import android.security.keystore.KeyGenParameterSpec;
+          import android.security.keystore.KeyProperties;
+          import android.util.Base64;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          
+          import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
+          import com.tom_roush.pdfbox.pdmodel.PDDocument;
+          import com.tom_roush.pdfbox.text.PDFTextStripper;
+          
+          import org.json.JSONObject;
+          
+          import java.io.*;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.nio.charset.StandardCharsets;
+          import java.security.KeyStore;
+          import java.util.*;
+          import java.util.concurrent.atomic.AtomicBoolean;
+          import java.util.zip.ZipEntry;
+          import java.util.zip.ZipInputStream;
+          
+          import javax.crypto.Cipher;
+          import javax.crypto.KeyGenerator;
+          import javax.crypto.SecretKey;
+          import javax.crypto.spec.GCMParameterSpec;
+          
+          public class MainActivity extends Activity {
+              private static final int REQ_AUDIO_PERMISSION = 501;
+              private static final int REQ_DOC = 502;
+              private static final int REQ_AUDIO_FILE = 503;
+              private static final String PREFS = "voiceforge_prefs";
+              private static final String KEY_ALIAS = "voiceforge_fish_api_key";
+              private static final String FISH_MODEL_URL = "https://api.fish.audio/model";
+              private static final String FISH_TTS_URL = "https://api.fish.audio/v1/tts";
+              private static final String FISH_API_PAGE = "https://fish.audio/app/api-keys";
+              private static final String FISH_MODEL_HEADER = "s2.1-pro-free";
+          
+              private WebView webView;
+              private MediaRecorder recorder;
+              private MediaPlayer player;
+              private File lastSample;
+              private long recordStart = 0;
+              private SharedPreferences prefs;
+              private final List<File> generatedPlaylist = new ArrayList<>();
+              private int playlistIndex = 0;
+              private final AtomicBoolean generating = new AtomicBoolean(false);
+          
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().setStatusBarColor(android.graphics.Color.rgb(11,11,12));
+                  getWindow().setNavigationBarColor(android.graphics.Color.rgb(11,11,12));
+                  PDFBoxResourceLoader.init(getApplicationContext());
+                  prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                  restoreSample();
+                  webView = new WebView(this);
+                  setContentView(webView);
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowContentAccess(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setDefaultTextEncodingName("utf-8");
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient());
+                  webView.addJavascriptInterface(new Bridge(), "Android");
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+          
+              private void restoreSample() {
+                  String path = prefs == null ? "" : prefs.getString("voice_sample_path", "");
+                  if (!path.isEmpty()) {
+                      File f = new File(path);
+                      if (f.exists()) lastSample = f;
+                  }
+              }
+          
+              private void js(String code) { runOnUiThread(() -> webView.evaluateJavascript(code, null)); }
+              private void toast(String msg) { runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show()); }
+          
+              public class Bridge {
+                  @JavascriptInterface
+                  public String getState() {
+                      try {
+                          JSONObject o = new JSONObject();
+                          o.put("hasKey", !getApiKey().isEmpty());
+                          o.put("hasSample", lastSample != null && lastSample.exists());
+                          o.put("voiceId", prefs.getString("voice_id", ""));
+                          o.put("voiceState", prefs.getString("voice_state", ""));
+                          o.put("sampleName", prefs.getString("voice_sample_name", ""));
+                          o.put("sampleDurationMs", prefs.getLong("voice_sample_duration_ms", 0));
+                          return o.toString();
+                      } catch (Exception e) { return "{}"; }
+                  }
+          
+                  @JavascriptInterface
+                  public void saveApiKey(String key) {
+                      String clean = key == null ? "" : key.trim();
+                      if (clean.length() < 12) {
+                          js("window.onApiKeySaved&&window.onApiKeySaved(false,'API Key 格式看起来不正确')");
+                          return;
+                      }
+                      try {
+                          saveEncrypted("fish_api_key", clean);
+                          js("window.onApiKeySaved&&window.onApiKeySaved(true,'已用 Android Keystore 加密保存')");
+                      } catch (Exception e) {
+                          js("window.onApiKeySaved&&window.onApiKeySaved(false,'" + jse("保存失败：" + e.getMessage()) + "')");
+                      }
+                  }
+          
+                  @JavascriptInterface public void clearApiKey() { prefs.edit().remove("fish_api_key_iv").remove("fish_api_key_ct").apply(); js("window.onApiKeyCleared&&window.onApiKeyCleared()"); }
+                  @JavascriptInterface public void openApiKeyPage() { openExternal(FISH_API_PAGE); }
+          
+                  @JavascriptInterface
+                  public void startRecording() {
+                      runOnUiThread(() -> {
+                          if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                              requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO_PERMISSION);
+                              return;
+                          }
+                          reallyStartRecording();
+                      });
+                  }
+          
+                  @JavascriptInterface public void stopRecording() { runOnUiThread(() -> reallyStopRecording()); }
+          
+                  @JavascriptInterface
+                  public void pickVoiceSample() {
+                      runOnUiThread(() -> {
+                          Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                          i.addCategory(Intent.CATEGORY_OPENABLE);
+                          i.setType("audio/*");
+                          startActivityForResult(i, REQ_AUDIO_FILE);
+                      });
+                  }
+          
+                  @JavascriptInterface
+                  public void playSample() {
+                      runOnUiThread(() -> {
+                          if (lastSample == null || !lastSample.exists()) { toast("还没有声音样本"); return; }
+                          playFile(lastSample);
+                      });
+                  }
+          
+                  @JavascriptInterface
+                  public void createVoice(String displayName, String transcript, boolean consent) {
+                      if (!consent) { js("window.onCloneError&&window.onCloneError('必须确认声音所有权或已获得明确授权')"); return; }
+                      if (generating.get()) { js("window.onCloneError&&window.onCloneError('当前正在生成音频，请稍后再操作')"); return; }
+                      final String apiKey = getApiKey();
+                      if (apiKey.isEmpty()) { js("window.onCloneError&&window.onCloneError('请先在设置中填写 Fish Audio API Key')"); return; }
+                      if (lastSample == null || !lastSample.exists()) { js("window.onCloneError&&window.onCloneError('请先录制或导入声音样本')"); return; }
+                          long sampleMs = prefs.getLong("voice_sample_duration_ms", 0);
+                          if (sampleMs > 0 && sampleMs < 10000) { js("window.onCloneError&&window.onCloneError('参考声音至少需要 10 秒；建议 60–120 秒清晰单人语音')"); return; }
+                      final String name = (displayName == null || displayName.trim().isEmpty()) ? "我的声音" : displayName.trim();
+                      final String refText = transcript == null ? "" : transcript.trim();
+                      new Thread(() -> {
+                          try {
+                              js("window.onCloneProgress&&window.onCloneProgress('正在上传参考声音…')");
+                              JSONObject created = createFishVoice(apiKey, name, refText, lastSample);
+                              String id = created.optString("_id", created.optString("id", ""));
+                              String state = created.optString("state", "created");
+                              if (id.isEmpty()) throw new IOException("服务端没有返回 Voice ID");
+                              prefs.edit().putString("voice_id", id).putString("voice_state", state).putString("voice_name", name).apply();
+                              js("window.onCloneCreated&&window.onCloneCreated('" + jse(id) + "','" + jse(state) + "')");
+                              pollVoiceUntilReady(apiKey, id);
+                          } catch (Exception e) {
+                              js("window.onCloneError&&window.onCloneError('" + jse(humanApiError(e)) + "')");
+                          }
+                      }).start();
+                  }
+          
+                  @JavascriptInterface
+                  public void refreshVoice() {
+                      String id = prefs.getString("voice_id", ""); String apiKey = getApiKey();
+                      if (id.isEmpty() || apiKey.isEmpty()) return;
+                      new Thread(() -> {
+                          try {
+                              JSONObject o = getFishVoice(apiKey, id);
+                              String state = o.optString("state", "unknown");
+                              prefs.edit().putString("voice_state", state).apply();
+                              js("window.onVoiceState&&window.onVoiceState('" + jse(state) + "')");
+                          } catch (Exception e) { js("window.onCloneError&&window.onCloneError('" + jse(humanApiError(e)) + "')"); }
+                      }).start();
+                  }
+          
+                  @JavascriptInterface
+                  public void deleteVoice() {
+                      final String id = prefs.getString("voice_id", ""); final String apiKey = getApiKey();
+                      new Thread(() -> {
+                          if (!id.isEmpty() && !apiKey.isEmpty()) { try { deleteFishVoice(apiKey, id); } catch (Exception ignored) {} }
+                          prefs.edit().remove("voice_id").remove("voice_state").remove("voice_name").apply();
+                          js("window.onVoiceDeleted&&window.onVoiceDeleted()");
+                      }).start();
+                  }
+          
+                  @JavascriptInterface
+                  public void pickDocument() {
+                      runOnUiThread(() -> {
+                          Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                          i.addCategory(Intent.CATEGORY_OPENABLE);
+                          i.setType("*/*");
+                          i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"text/plain","text/markdown","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/pdf"});
+                          startActivityForResult(i, REQ_DOC);
+                      });
+                  }
+          
+                  @JavascriptInterface
+                  public void synthesize(String text, String style, int intensity, double speed, int pause, int warmth, int power, boolean preview) {
+                      if (generating.get()) { js("window.onGenerationError&&window.onGenerationError('已有生成任务正在进行')"); return; }
+                      final String clean = text == null ? "" : text.trim();
+                      if (clean.isEmpty()) { js("window.onGenerationError&&window.onGenerationError('请先导入或粘贴文字')"); return; }
+                      final String apiKey = getApiKey(); final String voiceId = prefs.getString("voice_id", "");
+                      if (apiKey.isEmpty()) { js("window.onGenerationError&&window.onGenerationError('请先填写 Fish Audio API Key')"); return; }
+                      if (voiceId.isEmpty()) { js("window.onGenerationError&&window.onGenerationError('请先建立“我的音色”')"); return; }
+                      generating.set(true);
+                      new Thread(() -> {
+                          try {
+                              generatedPlaylist.clear(); playlistIndex = 0;
+                              String source = preview ? firstPreview(clean) : clean;
+                              List<String> chunks = preview ? Collections.singletonList(source) : splitText(source, 850);
+                              int total = chunks.size();
+                              for (int i = 0; i < total; i++) {
+                                  int current = i + 1;
+                                  js("window.onGenerationProgress&&window.onGenerationProgress(" + current + "," + total + ",'正在生成第 " + current + " 段')");
+                                  String directed = directText(chunks.get(i), style, intensity, pause, warmth, power);
+                                  byte[] audio = requestTts(apiKey, voiceId, directed, speed, power);
+                                  File dir = new File(getFilesDir(), "generated"); if (!dir.exists()) dir.mkdirs();
+                                  File out = new File(dir, (preview ? "preview" : "full") + "_" + System.currentTimeMillis() + "_" + i + ".mp3");
+                                  try (FileOutputStream fos = new FileOutputStream(out)) { fos.write(audio); }
+                                  generatedPlaylist.add(out);
+                              }
+                              js("window.onGenerationComplete&&window.onGenerationComplete(" + generatedPlaylist.size() + "," + (preview ? "true" : "false") + ")");
+                              runOnUiThread(() -> playPlaylistFromStart());
+                          } catch (Exception e) {
+                              js("window.onGenerationError&&window.onGenerationError('" + jse(humanApiError(e)) + "')");
+                          } finally { generating.set(false); }
+                      }).start();
+                  }
+          
+                  @JavascriptInterface public void replayGenerated() { runOnUiThread(() -> playPlaylistFromStart()); }
+                  @JavascriptInterface public void stopAudio() { runOnUiThread(() -> { if (player != null) { try { player.stop(); } catch (Exception ignored) {} player.release(); player = null; } }); }
+              }
+          
+              private void reallyStartRecording() {
+                  try {
+                      if (recorder != null) return;
+                      File f = new File(getFilesDir(), "voice_reference.m4a"); if (f.exists()) f.delete(); lastSample = f;
+                      recorder = new MediaRecorder(); recorder.setAudioSource(MediaRecorder.AudioSource.MIC); recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                      recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC); recorder.setAudioEncodingBitRate(160000); recorder.setAudioSamplingRate(44100);
+                      recorder.setOutputFile(lastSample.getAbsolutePath()); recorder.prepare(); recorder.start(); recordStart = System.currentTimeMillis();
+                      js("window.onRecordingStarted&&window.onRecordingStarted()");
+                  } catch (Exception e) { recorder = null; toast("录音启动失败：" + e.getMessage()); }
+              }
+          
+              private void reallyStopRecording() {
+                  if (recorder == null) return;
+                  try {
+                      recorder.stop(); long ms = Math.max(0, System.currentTimeMillis() - recordStart); recorder.release(); recorder = null;
+                      prefs.edit().putString("voice_sample_path", lastSample.getAbsolutePath()).putString("voice_sample_name", "voice_reference.m4a").putLong("voice_sample_duration_ms", ms).apply();
+                      js("window.onRecordingStopped&&window.onRecordingStopped(" + ms + ")");
+                  } catch (Exception e) {
+                      try { recorder.release(); } catch (Exception ignored) {} recorder = null; if (lastSample != null) lastSample.delete();
+                      js("window.onRecordingError&&window.onRecordingError('录音太短或保存失败，请重新录制')");
+                  }
+              }
+          
+              @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                  if (requestCode == REQ_AUDIO_PERMISSION && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) reallyStartRecording();
+                  else if (requestCode == REQ_AUDIO_PERMISSION) toast("需要麦克风权限才能录制声音样本");
+              }
+          
+              @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+                  Uri uri = data.getData();
+                  if (requestCode == REQ_AUDIO_FILE) { new Thread(() -> importAudioSample(uri)).start(); return; }
+                  if (requestCode == REQ_DOC) {
+                      new Thread(() -> {
+                          try {
+                              String name = getFileName(uri); String lower = name.toLowerCase(Locale.ROOT); String text;
+                              if (lower.endsWith(".docx")) text = extractDocx(uri); else if (lower.endsWith(".pdf")) text = extractPdf(uri); else text = readText(uri);
+                              js("window.onDocumentImported&&window.onDocumentImported('" + jse(name) + "','" + jse(text) + "')");
+                          } catch (Exception e) { js("window.onImportError&&window.onImportError('" + jse("文档读取失败：" + e.getMessage()) + "')"); }
+                      }).start();
+                  }
+              }
+          
+              private void importAudioSample(Uri uri) {
+                  try {
+                      String name = getFileName(uri); String ext = "m4a"; int dot = name.lastIndexOf('.');
+                      if (dot >= 0 && dot < name.length() - 1) { String e = name.substring(dot + 1).toLowerCase(Locale.ROOT); if (Arrays.asList("m4a","mp3","wav","opus").contains(e)) ext = e; }
+                      File dst = new File(getFilesDir(), "voice_reference." + ext);
+                      try (InputStream in = getContentResolver().openInputStream(uri); FileOutputStream out = new FileOutputStream(dst)) {
+                          if (in == null) throw new IOException("无法读取声音文件"); byte[] buf = new byte[8192]; int n; long total = 0;
+                          while ((n = in.read(buf)) != -1) { total += n; if (total > 10L * 1024L * 1024L) throw new IOException("声音文件超过 10MB"); out.write(buf, 0, n); }
+                      }
+                      lastSample = dst; long durationMs = audioDurationMs(dst); prefs.edit().putString("voice_sample_path", dst.getAbsolutePath()).putString("voice_sample_name", name).putLong("voice_sample_duration_ms", durationMs).apply();
+                      js("window.onVoiceSampleImported&&window.onVoiceSampleImported('" + jse(name) + "')");
+                  } catch (Exception e) { js("window.onRecordingError&&window.onRecordingError('" + jse("声音样本导入失败：" + e.getMessage()) + "')"); }
+              }
+          
+          
+              private long audioDurationMs(File file) {
+                  MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                  try {
+                      mmr.setDataSource(file.getAbsolutePath());
+                      String d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                      return d == null ? 0 : Long.parseLong(d);
+                  } catch (Exception e) {
+                      return 0;
+                  } finally {
+                      try { mmr.release(); } catch (Exception ignored) {}
+                  }
+              }
+          
+              private JSONObject createFishVoice(String apiKey, String name, String transcript, File audio) throws Exception {
+                  String boundary = "----VoiceForge" + System.currentTimeMillis();
+                  HttpURLConnection conn = (HttpURLConnection) new URL(FISH_MODEL_URL).openConnection();
+                  conn.setConnectTimeout(30000); conn.setReadTimeout(120000); conn.setDoOutput(true); conn.setRequestMethod("POST");
+                  conn.setRequestProperty("Authorization", "Bearer " + apiKey); conn.setRequestProperty("Accept", "application/json"); conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+                  try (DataOutputStream out = new DataOutputStream(conn.getOutputStream())) {
+                      writeField(out, boundary, "title", name); writeField(out, boundary, "description", "VoiceForge 私有声音模型"); writeField(out, boundary, "visibility", "private");
+                      writeField(out, boundary, "type", "tts"); writeField(out, boundary, "train_mode", "fast"); writeField(out, boundary, "enhance_audio_quality", "true");
+                      if (transcript != null && !transcript.isEmpty()) writeField(out, boundary, "texts", transcript);
+                      out.writeBytes("--" + boundary + "\r\n"); out.writeBytes("Content-Disposition: form-data; name=\"voices\"; filename=\"" + safeAsciiFileName(audio.getName()) + "\"\r\n");
+                      out.writeBytes("Content-Type: " + mimeFor(audio.getName()) + "\r\n\r\n");
+                      try (FileInputStream in = new FileInputStream(audio)) { byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) != -1) out.write(buf, 0, n); }
+                      out.writeBytes("\r\n--" + boundary + "--\r\n"); out.flush();
+                  }
+                  int code = conn.getResponseCode(); String body = readResponse(conn, code); conn.disconnect();
+                  if (code < 200 || code >= 300) throw new IOException("Fish Audio " + code + ": " + body); return new JSONObject(body);
+              }
+          
+              private JSONObject getFishVoice(String apiKey, String id) throws Exception {
+                  HttpURLConnection conn = (HttpURLConnection) new URL(FISH_MODEL_URL + "/" + id).openConnection();
+                  conn.setConnectTimeout(20000); conn.setReadTimeout(30000); conn.setRequestMethod("GET"); conn.setRequestProperty("Authorization", "Bearer " + apiKey); conn.setRequestProperty("Accept", "application/json");
+                  int code = conn.getResponseCode(); String body = readResponse(conn, code); conn.disconnect(); if (code < 200 || code >= 300) throw new IOException("Fish Audio " + code + ": " + body); return new JSONObject(body);
+              }
+          
+              private void deleteFishVoice(String apiKey, String id) throws Exception {
+                  HttpURLConnection conn = (HttpURLConnection) new URL(FISH_MODEL_URL + "/" + id).openConnection();
+                  conn.setConnectTimeout(20000); conn.setReadTimeout(30000); conn.setRequestMethod("DELETE"); conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+                  int code = conn.getResponseCode(); if (code < 200 || code >= 300) { String body = readResponse(conn, code); conn.disconnect(); throw new IOException("Fish Audio " + code + ": " + body); } conn.disconnect();
+              }
+          
+              private void pollVoiceUntilReady(String apiKey, String id) {
+                  for (int i = 0; i < 18; i++) {
+                      try {
+                          JSONObject o = getFishVoice(apiKey, id); String state = o.optString("state", "unknown"); prefs.edit().putString("voice_state", state).apply(); js("window.onVoiceState&&window.onVoiceState('" + jse(state) + "')");
+                          if ("trained".equalsIgnoreCase(state) || "ready".equalsIgnoreCase(state) || "failed".equalsIgnoreCase(state)) return;
+                          Thread.sleep(3000);
+                      } catch (Exception e) { return; }
+                  }
+              }
+          
+              private byte[] requestTts(String apiKey, String voiceId, String text, double speed, int power) throws Exception {
+                  JSONObject body = new JSONObject(); body.put("text", text); body.put("reference_id", voiceId); body.put("format", "mp3"); body.put("mp3_bitrate", 128); body.put("sample_rate", 44100); body.put("chunk_length", 220); body.put("normalize", true); body.put("latency", "normal"); body.put("repetition_penalty", 1.2); body.put("min_chunk_length", 50); body.put("condition_on_previous_chunks", true); body.put("temperature", 0.72); body.put("top_p", 0.72);
+                  JSONObject prosody = new JSONObject(); prosody.put("speed", Math.max(0.65, Math.min(1.35, speed))); double volume = (power - 50) / 5.0; prosody.put("volume", Math.max(-8.0, Math.min(8.0, volume))); prosody.put("normalize_loudness", true); body.put("prosody", prosody);
+                  byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
+                  HttpURLConnection conn = (HttpURLConnection) new URL(FISH_TTS_URL).openConnection(); conn.setConnectTimeout(30000); conn.setReadTimeout(180000); conn.setDoOutput(true); conn.setRequestMethod("POST");
+                  conn.setRequestProperty("Authorization", "Bearer " + apiKey); conn.setRequestProperty("Content-Type", "application/json"); conn.setRequestProperty("Accept", "audio/mpeg"); conn.setRequestProperty("model", FISH_MODEL_HEADER); conn.setFixedLengthStreamingMode(payload.length);
+                  try (OutputStream out = conn.getOutputStream()) { out.write(payload); }
+                  int code = conn.getResponseCode(); if (code < 200 || code >= 300) { String err = readResponse(conn, code); conn.disconnect(); throw new IOException("Fish Audio " + code + ": " + err); }
+                  try (InputStream in = conn.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) { byte[] buf = new byte[16384]; int n; while ((n = in.read(buf)) != -1) out.write(buf, 0, n); conn.disconnect(); return out.toByteArray(); }
+              }
+          
+              private String directText(String text, String style, int intensity, int pause, int warmth, int power) {
+                  String strength = intensity >= 82 ? "very " : intensity >= 58 ? "" : intensity >= 30 ? "slightly " : "subtly ";
+                  String core;
+                  switch (style == null ? "" : style) {
+                      case "机智勇敢": core = "confident, determined, quick-witted"; break;
+                      case "深情慈悲": core = "compassionate, empathetic, warm"; break;
+                      case "嚣张跋扈": core = "confident, disdainful, domineering"; break;
+                      case "风流倜傥": core = "relaxed, confident, playful"; break;
+                      case "雄浑壮烈": core = "determined, powerful, epic"; break;
+                      case "深沉克制": default: core = "calm, low, restrained, steady"; break;
+                  }
+                  if (warmth >= 75 && !core.contains("warm")) core += ", warm";
+                  if (warmth <= 25) core += ", cool";
+                  if (power >= 82 && !core.contains("powerful")) core += ", powerful";
+                  if (power <= 28) core += ", soft";
+                  String cue = "[" + strength + core + "] ";
+                  String t = text;
+                  if (pause >= 78) {
+                      t = t.replace("。", "。[break] ").replace("！", "！[break] ").replace("？", "？[break] ").replace("\n\n", "\n[long-break]\n");
+                  } else if (pause >= 48) {
+                      t = t.replace("\n\n", "\n[break]\n");
+                  }
+                  return cue + t;
+              }
+          
+              private List<String> splitText(String text, int maxChars) {
+                  List<String> out = new ArrayList<>(); String normalized = text.replace("\r", "").trim(); if (normalized.length() <= maxChars) { out.add(normalized); return out; }
+                  String[] paras = normalized.split("\n+"); StringBuilder current = new StringBuilder();
+                  for (String para : paras) {
+                      String p = para.trim(); if (p.isEmpty()) continue;
+                      if (p.length() > maxChars) {
+                          for (String s : splitSentences(p)) {
+                              if (current.length() + s.length() + 1 > maxChars && current.length() > 0) { out.add(current.toString().trim()); current.setLength(0); }
+                              if (s.length() > maxChars) { int pos = 0; while (pos < s.length()) { int end = Math.min(pos + maxChars, s.length()); if (current.length() > 0) { out.add(current.toString().trim()); current.setLength(0); } out.add(s.substring(pos, end).trim()); pos = end; } }
+                              else current.append(s);
+                          }
+                      } else { if (current.length() + p.length() + 2 > maxChars && current.length() > 0) { out.add(current.toString().trim()); current.setLength(0); } current.append(p).append("\n"); }
+                  }
+                  if (current.length() > 0) out.add(current.toString().trim()); return out;
+              }
+          
+              private List<String> splitSentences(String text) { List<String> list = new ArrayList<>(); StringBuilder b = new StringBuilder(); for (int i=0;i<text.length();i++){char c=text.charAt(i);b.append(c);if("。！？!?；;".indexOf(c)>=0){list.add(b.toString());b.setLength(0);}} if(b.length()>0)list.add(b.toString()); return list; }
+              private String firstPreview(String text) { int max=Math.min(150,text.length()),end=max; for(int i=Math.min(text.length()-1,150);i>=60;i--){if("。！？!?；;".indexOf(text.charAt(i))>=0){end=i+1;break;}} return text.substring(0,end); }
+          
+              private void playPlaylistFromStart() { if (generatedPlaylist.isEmpty()) return; playlistIndex = 0; playNextInPlaylist(); }
+              private void playNextInPlaylist() {
+                  if (playlistIndex >= generatedPlaylist.size()) { js("window.onPlaybackFinished&&window.onPlaybackFinished()"); return; }
+                  File f = generatedPlaylist.get(playlistIndex++);
+                  try { if (player != null) player.release(); player = new MediaPlayer(); player.setDataSource(f.getAbsolutePath()); player.setOnCompletionListener(mp -> playNextInPlaylist()); player.prepare(); player.start(); js("window.onPlaybackStarted&&window.onPlaybackStarted(" + playlistIndex + "," + generatedPlaylist.size() + ")"); }
+                  catch (Exception e) { toast("播放失败：" + e.getMessage()); }
+              }
+              private void playFile(File file) { try { if(player!=null)player.release(); player=new MediaPlayer(); player.setDataSource(file.getAbsolutePath()); player.prepare(); player.start(); } catch(Exception e){ toast("播放失败："+e.getMessage()); } }
+          
+              private String getFileName(Uri uri) { String result="文件"; Cursor c=getContentResolver().query(uri,null,null,null,null); if(c!=null){int idx=c.getColumnIndex(OpenableColumns.DISPLAY_NAME);if(idx>=0&&c.moveToFirst())result=c.getString(idx);c.close();} return result==null?"文件":result; }
+              private String readText(Uri uri) throws Exception { try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException("无法打开文件");byte[]buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);return out.toString(StandardCharsets.UTF_8.name());} }
+              private String extractDocx(Uri uri) throws Exception { InputStream in=getContentResolver().openInputStream(uri);if(in==null)throw new IOException("无法打开DOCX");ZipInputStream zis=new ZipInputStream(in);ZipEntry entry;String xml=null;while((entry=zis.getNextEntry())!=null){if("word/document.xml".equals(entry.getName())){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[]buf=new byte[8192];int n;while((n=zis.read(buf))!=-1)out.write(buf,0,n);xml=out.toString(StandardCharsets.UTF_8.name());break;}}zis.close();if(xml==null)throw new IOException("DOCX正文不存在");xml=xml.replace("</w:p>","\n").replace("</w:tr>","\n").replace("</w:tc>","\t");return xml.replaceAll("<[^>]+>","").replace("&amp;","&").replace("&lt;","<").replace("&gt;",">").replace("&quot;","\"").replace("&#39;","'").replaceAll("\n{3,}","\n\n").trim(); }
+              private String extractPdf(Uri uri) throws Exception { InputStream in=getContentResolver().openInputStream(uri);if(in==null)throw new IOException("无法打开PDF");PDDocument doc=PDDocument.load(in);String text=new PDFTextStripper().getText(doc);doc.close();in.close();return text==null?"":text.trim(); }
+          
+              private void writeField(DataOutputStream out,String boundary,String name,String value)throws IOException{out.writeBytes("--"+boundary+"\r\n");out.writeBytes("Content-Disposition: form-data; name=\""+name+"\"\r\n");out.writeBytes("Content-Type: text/plain; charset=UTF-8\r\n\r\n");out.write(value.getBytes(StandardCharsets.UTF_8));out.writeBytes("\r\n");}
+              private String readResponse(HttpURLConnection conn,int code)throws IOException{InputStream in=code>=400?conn.getErrorStream():conn.getInputStream();if(in==null)return"";try(InputStream input=in;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[]buf=new byte[8192];int n;while((n=input.read(buf))!=-1)out.write(buf,0,n);return out.toString(StandardCharsets.UTF_8.name());}}
+              private String mimeFor(String name){String n=name.toLowerCase(Locale.ROOT);if(n.endsWith(".mp3"))return"audio/mpeg";if(n.endsWith(".wav"))return"audio/wav";if(n.endsWith(".aac"))return"audio/aac";if(n.endsWith(".ogg"))return"audio/ogg";if(n.endsWith(".webm"))return"audio/webm";if(n.endsWith(".flac"))return"audio/flac";return"audio/mp4";}
+              private String safeAsciiFileName(String name){String ext=".m4a";int dot=name.lastIndexOf('.');if(dot>=0)ext=name.substring(dot);return"voice_reference"+ext.replaceAll("[^A-Za-z0-9.]","");}
+              private void openExternal(String url){runOnUiThread(()->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){toast("无法打开浏览器");}});}
+          
+              private void saveEncrypted(String key,String value)throws Exception{SecretKey secretKey=getOrCreateSecretKey();Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,secretKey);byte[]iv=cipher.getIV();byte[]ct=cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));prefs.edit().putString(key+"_iv",Base64.encodeToString(iv,Base64.NO_WRAP)).putString(key+"_ct",Base64.encodeToString(ct,Base64.NO_WRAP)).apply();}
+              private String getApiKey(){try{String iv64=prefs.getString("fish_api_key_iv","");String ct64=prefs.getString("fish_api_key_ct","");if(iv64.isEmpty()||ct64.isEmpty())return"";SecretKey secretKey=getOrCreateSecretKey();Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");GCMParameterSpec spec=new GCMParameterSpec(128,Base64.decode(iv64,Base64.NO_WRAP));cipher.init(Cipher.DECRYPT_MODE,secretKey,spec);byte[]pt=cipher.doFinal(Base64.decode(ct64,Base64.NO_WRAP));return new String(pt,StandardCharsets.UTF_8);}catch(Exception e){return"";}}
+              private SecretKey getOrCreateSecretKey()throws Exception{KeyStore ks=KeyStore.getInstance("AndroidKeyStore");ks.load(null);if(ks.containsAlias(KEY_ALIAS)){KeyStore.SecretKeyEntry entry=(KeyStore.SecretKeyEntry)ks.getEntry(KEY_ALIAS,null);return entry.getSecretKey();}KeyGenerator kg=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore");KeyGenParameterSpec spec=new KeyGenParameterSpec.Builder(KEY_ALIAS,KeyProperties.PURPOSE_ENCRYPT|KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build();kg.init(spec);return kg.generateKey();}
+              private String humanApiError(Exception e){String m=e.getMessage()==null?e.toString():e.getMessage();if(m.contains("401")||m.contains("403"))return"API Key 无效、权限不足或当前账户不可用。请检查 Fish Audio API Key。";if(m.contains("429"))return"Fish Audio 当前额度或频率受限，请检查账户额度后再试。";if(m.contains("413")||m.toLowerCase(Locale.ROOT).contains("too large"))return"声音样本或文本过大，请缩短后重试。";return m.length()>500?m.substring(0,500):m;}
+              private String jse(String s){if(s==null)return"";return s.replace("\\","\\\\").replace("'","\\'").replace("\"","\\\"").replace("\r","").replace("\n","\\n").replace("\t","\\t").replace("</","<\\/");}
+          
+              @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
+              @Override protected void onDestroy(){if(recorder!=null){try{recorder.release();}catch(Exception ignored){}recorder=null;}if(player!=null){try{player.release();}catch(Exception ignored){}player=null;}if(webView!=null)webView.destroy();super.onDestroy();}
+          }
+          EOF_JAVA
+
+          cat > app/src/main/assets/index.html <<'EOF_HTML'
+          <!doctype html>
+          <html lang="zh-CN">
+          <head>
+          <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>声魄 VoiceForge</title>
+          <style>
+          :root{--bg:#0b0b0c;--panel:#141416;--text:#f2eee6;--muted:#99948b;--red:#9e2625;--gold:#d8b77a;--line:#2a2928}
+          *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans SC","Microsoft YaHei",sans-serif}button,input,textarea{font-family:inherit}.app{max-width:760px;margin:auto;padding:20px 16px 105px}.brand{display:flex;align-items:center;gap:10px;margin:4px 0 18px}.logo{width:40px;height:40px;border-radius:13px;background:linear-gradient(145deg,#441514,#111);border:1px solid #5e3e2c;display:grid;place-items:center;color:var(--gold);font-weight:800}.brand b{font-size:19px}.brand small{display:block;color:var(--muted);font-size:10px;margin-top:2px}.hero{padding:16px 2px 18px}.hero h1{font-size:32px;line-height:1.12;margin:0 0 12px;letter-spacing:-1px}.hero p{color:#b9b2a6;line-height:1.65;margin:0}.card{background:linear-gradient(180deg,var(--panel),#111113);border:1px solid var(--line);border-radius:20px;padding:16px;margin:12px 0;box-shadow:0 12px 30px rgba(0,0,0,.18)}.card h2{font-size:17px;margin:0 0 5px}.sub{color:var(--muted);font-size:12px;line-height:1.6}.row{display:flex;gap:9px;flex-wrap:wrap}.btn{border:0;border-radius:14px;padding:12px 14px;font-size:14px;font-weight:700;background:#242326;color:var(--text)}.btn.primary{background:linear-gradient(135deg,#a92c29,#701b1a)}.btn.gold{background:linear-gradient(135deg,#d8b77a,#a27c43);color:#16120d}.btn.ghost{border:1px solid var(--line);background:transparent}.status{padding:10px 12px;border:1px solid #423b30;border-radius:12px;background:#171512;color:#cdbd9e;font-size:12px;line-height:1.55;margin-top:12px}.ok{border-color:#38533d;color:#a9d5ae;background:#111813}.warn{border-color:#654026;color:#e3b483;background:#1b1511}.step{display:flex;gap:10px;align-items:flex-start}.num{flex:0 0 26px;width:26px;height:26px;border:1px solid #55442e;color:var(--gold);border-radius:9px;display:grid;place-items:center;font-size:12px;font-weight:800}.wave{height:58px;border-radius:12px;background:repeating-linear-gradient(90deg,#3d2925 0 2px,transparent 2px 7px),linear-gradient(180deg,#171719,#111);opacity:.85;margin:12px 0}.recording{outline:1px solid #9e2625;box-shadow:0 0 0 4px rgba(158,38,37,.10)}.scriptbox{width:100%;min-height:180px;background:#0e0e10;color:var(--text);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:14px;line-height:1.7;resize:vertical;outline:none}.input{width:100%;background:#0e0e10;color:var(--text);border:1px solid var(--line);border-radius:13px;padding:12px;font-size:14px;outline:none}.styles{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.style{padding:13px;border:1px solid var(--line);border-radius:15px;background:#171719}.style.active{border-color:#8f6f42;background:linear-gradient(145deg,#2b241a,#171719)}.style b{font-size:14px}.style p{font-size:11px;color:var(--muted);line-height:1.45;margin:6px 0 0}label.range{display:block;font-size:12px;color:#c8c1b7;margin:14px 0 4px}.rangehead{display:flex;justify-content:space-between}.rangehead span:last-child{color:var(--gold)}input[type=range]{width:100%;accent-color:#a22a27}.docmeta{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin:8px 2px 0}.consent{display:flex;gap:9px;align-items:flex-start;font-size:12px;color:#aaa49a;line-height:1.5}.consent input{margin-top:2px;accent-color:#a22a27}.notice{font-size:11px;color:#847f77;line-height:1.6;margin-top:10px}.progress{height:7px;background:#242326;border-radius:99px;overflow:hidden;margin-top:10px}.bar{height:100%;width:0;background:linear-gradient(90deg,#8c2926,#d8b77a);transition:.25s}.nav{position:fixed;left:0;right:0;bottom:0;background:rgba(12,12,13,.96);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 8px 15px}.nav button{background:none;border:0;color:#77736d;font-size:11px}.nav button.active{color:var(--gold)}.screen{display:none}.screen.active{display:block}@media(max-width:380px){.hero h1{font-size:29px}.styles{grid-template-columns:1fr}.btn{padding:11px 12px}}
+          </style></head><body><div class="app">
+          <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>YOUR VOICE · SIX PERFORMANCES · v0.2.2</small></div></div>
+          <section id="home" class="screen active">
+          <div class="hero"><h1>不是让机器读。<br>是让“你的声音”去演。</h1><p>录一次你的自然声音，建立私有音色。以后同一个音色，可以深沉、慈悲、嚣张、潇洒，也可以雄浑壮烈。</p></div>
+          <div class="card"><div class="step"><div class="num">1</div><div style="flex:1"><h2>连接声音引擎</h2><div class="sub">首次使用填一次 Fish Audio API Key。密钥只在本机通过 Android Keystore 加密保存，不写进 APK。</div></div></div><div id="keyState" class="status warn">尚未配置 API Key</div><div class="row" style="margin-top:10px"><button class="btn" onclick="go('settings')">配置 API Key</button></div></div>
+          <div class="card"><div class="step"><div class="num">2</div><div style="flex:1"><h2>录制“基础音色”</h2><div class="sub">请用最自然的声音读，不要故意压低、煽情或吼叫。至少 10 秒，建议 60–120 秒清晰单人语音。表演风格后面由模型完成。</div></div></div><div class="wave" id="wave"></div><textarea id="calibration" class="scriptbox" style="min-height:125px;margin-top:0">今天我用自己平时最自然的声音，录制一段声音样本。我不会故意压低声音，也不会刻意提高音调，而是保持正常的语速、气息和说话习惯。希望系统记住的是我的声音本身：包括音色、共鸣、咬字、口音和声音的颗粒感。以后无论面对沉静的文字、温暖的故事，还是有力量的演讲，都应该保持是同一个人的声音，只改变表达方式，而不是把我变成另外一个人。</textarea><div class="row" style="margin-top:10px"><button class="btn primary" id="recBtn" onclick="toggleRecord()">● 开始录音</button><button class="btn" onclick="Android.pickVoiceSample()">导入已有录音</button><button class="btn" onclick="Android.playSample()">▶ 听样本</button></div><div id="sampleState" class="status">尚未准备声音样本</div><div class="consent" style="margin-top:12px"><input id="consent" type="checkbox"><label for="consent">我确认这是我的声音，或我已获得声音所有者明确授权，可用于声音克隆。</label></div></div>
+          <div class="card"><div class="step"><div class="num">3</div><div style="flex:1"><h2>建立“我的音色”</h2><div class="sub">参考声音上传后会创建私有 Voice ID。以后不需要重新录音。</div></div></div><input id="voiceName" class="input" value="我的声音" style="margin-top:12px"><button class="btn gold" style="width:100%;margin-top:10px" onclick="createVoice()">建立我的音色</button><div id="cloneState" class="status">还没有 Voice ID</div></div>
+          <div class="card"><div class="step"><div class="num">4</div><div style="flex:1"><h2>导入要朗读的内容</h2><div class="sub">支持 TXT / MD / DOCX / PDF，也可以直接粘贴。</div></div></div><div class="row" style="margin-top:12px"><button class="btn gold" onclick="Android.pickDocument()">＋ 选择文档</button><button class="btn" onclick="go('studio')">直接粘贴</button></div><div id="docInfo" class="status">还没有导入文档</div></div><button class="btn primary" style="width:100%;margin-top:4px" onclick="go('studio')">进入导演台 →</button>
+          </section>
+          <section id="studio" class="screen"><div class="hero"><h1 style="font-size:28px">导演台</h1><p>音色不变，只改变“怎么说”。</p></div><div class="card"><h2>朗读脚本</h2><textarea id="script" class="scriptbox" placeholder="把要朗读的文字粘贴到这里……"></textarea><div class="docmeta"><span id="chars">0 字</span><span id="eta">预计 0 分钟</span></div></div><div class="card"><h2>六种演绎</h2><div class="sub">所有模式都使用同一个“我的音色”。</div><div class="styles" id="styles"></div><div id="sliders"></div><div class="row" style="margin-top:16px"><button class="btn gold" onclick="generate(true)">试听前20秒</button><button class="btn primary" onclick="generate(false)">生成整篇</button><button class="btn" onclick="Android.stopAudio()">停止</button><button class="btn ghost" onclick="Android.replayGenerated()">重播</button></div><div id="genState" class="status">等待生成</div><div class="progress"><div id="bar" class="bar"></div></div><div class="notice">生成时会把：你的 Voice ID + 当前文字 + 当前导演风格 一起交给模型。这里不再调用 Android 系统 TTS。</div></div></section>
+          <section id="voices" class="screen"><div class="hero"><h1 style="font-size:28px">我的音色</h1><p>一个声音身份，六种甚至更多表演方式。</p></div><div class="card"><h2>当前 Voice ID</h2><div id="voiceLibrary" class="status">未建立</div><div class="row" style="margin-top:10px"><button class="btn" onclick="Android.refreshVoice()">刷新状态</button><button class="btn ghost" onclick="deleteVoice()">删除音色</button></div></div><div class="card"><h2>为什么不会“换个人”</h2><div class="sub">Voice ID 负责固定“是谁”；导演标签负责“怎么说”。六种风格使用同一个 Voice ID。</div></div></section>
+          <section id="settings" class="screen"><div class="hero"><h1 style="font-size:28px">声音引擎</h1><p>v0.2.2 使用 Fish Audio S2.1 Pro Free 开发模型。</p></div><div class="card"><h2>Fish Audio API Key</h2><div class="sub">密钥不会显示出来，也不会写入 APK；保存后由 Android Keystore 加密。</div><input id="apiKey" class="input" type="password" placeholder="粘贴 API Key" autocomplete="off" style="margin-top:12px"><div class="row" style="margin-top:10px"><button class="btn gold" onclick="saveKey()">保存密钥</button><button class="btn" onclick="Android.openApiKeyPage()">获取 API Key</button><button class="btn ghost" onclick="clearKey()">清除</button></div><div id="settingsKeyState" class="status">未配置</div></div><div class="card"><h2>隐私</h2><div class="sub">参考声音保存在 App 私有目录；创建音色时会发送到 Fish Audio 生成私有 Voice ID。不要上传未经本人同意的声音。</div></div></section>
+          </div>
+          <nav class="nav"><button class="active" data-go="home" onclick="go('home')">⌂<br>首页</button><button data-go="voices" onclick="go('voices')">◉<br>音色</button><button data-go="studio" onclick="go('studio')">✦<br>导演台</button><button data-go="settings" onclick="go('settings')">⚙<br>设置</button></nav>
+          <script>
+          const presetData=[["深沉克制","低沉、稳、少炫技，情绪藏在字后面。"],["机智勇敢","节奏明快，判断果断，带一点锋利和幽默。"],["深情慈悲","温暖、悲悯、有呼吸感，不煽情但能打动人。"],["嚣张跋扈","强势、压迫、带挑衅感，句尾有控制力。"],["风流倜傥","松弛、自信、潇洒，带一点漫不经心的魅力。"],["雄浑壮烈","宽阔、燃、厚重，有史诗感和向前推进的力量。"]];
+          let selected="深沉克制",recording=false;const params={intensity:75,speed:0.95,pause:55,warmth:50,power:70};
+          function go(id){document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('active',x.id===id));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.go===id));scrollTo(0,0);refreshState()}
+          function buildStyles(){document.getElementById('styles').innerHTML=presetData.map(([n,d])=>`<div class="style ${n===selected?'active':''}" onclick="selected='${n}';buildStyles()"><b>${n}</b><p>${d}</p></div>`).join('')}
+          function slider(name,label,min,max,step){return `<label class="range"><div class="rangehead"><span>${label}</span><span id="${name}v">${params[name]}</span></div><input type="range" min="${min}" max="${max}" step="${step}" value="${params[name]}" oninput="params.${name}=+this.value;document.getElementById('${name}v').textContent=this.value"></label>`}
+          document.getElementById('sliders').innerHTML=slider('intensity','风格强度',0,100,1)+slider('speed','语速',0.7,1.3,0.01)+slider('pause','停顿',0,100,1)+slider('warmth','情绪温度',0,100,1)+slider('power','声音力量',0,100,1);buildStyles();
+          const script=document.getElementById('script');script.addEventListener('input',()=>{const n=script.value.replace(/\s/g,'').length;document.getElementById('chars').textContent=n+' 字';document.getElementById('eta').textContent='预计 '+(n?Math.max(1,Math.ceil(n/260)):0)+' 分钟'});
+          function refreshState(){try{const s=JSON.parse(Android.getState());const k=s.hasKey?'API Key 已配置 ✓':'尚未配置 API Key';for(const id of ['keyState','settingsKeyState']){const e=document.getElementById(id);e.textContent=k;e.className='status '+(s.hasKey?'ok':'warn')}if(s.hasSample){const e=document.getElementById('sampleState');const sec=s.sampleDurationMs?Math.round(s.sampleDurationMs/1000):0;e.textContent='声音样本已准备 ✓ '+(s.sampleName||'')+(sec?' · '+sec+' 秒':'');e.className='status '+(sec&&sec<10?'warn':'ok')}if(s.voiceId){const txt='Voice ID：'+s.voiceId+' · 状态：'+(s.voiceState||'已创建');for(const id of ['cloneState','voiceLibrary']){const e=document.getElementById(id);e.textContent=txt;e.className='status ok'}}}catch(e){}}
+          function saveKey(){Android.saveApiKey(document.getElementById('apiKey').value.trim())}window.onApiKeySaved=(ok,msg)=>{document.getElementById('apiKey').value='';alert(msg);refreshState()};function clearKey(){if(confirm('清除本机保存的 API Key？'))Android.clearApiKey()}window.onApiKeyCleared=()=>refreshState();
+          function toggleRecord(){if(!document.getElementById('consent').checked){alert('请先确认声音授权。');return}if(!recording)Android.startRecording();else Android.stopRecording()}
+          window.onRecordingStarted=()=>{recording=true;document.getElementById('recBtn').textContent='■ 停止录音';document.getElementById('wave').classList.add('recording');document.getElementById('sampleState').textContent='正在录音… 请保持自然声音'};window.onRecordingStopped=(ms)=>{recording=false;document.getElementById('recBtn').textContent='● 重新录音';document.getElementById('wave').classList.remove('recording');const e=document.getElementById('sampleState');e.textContent='样本已保存 · '+Math.round(ms/1000)+' 秒';e.className='status ok';refreshState()};window.onVoiceSampleImported=(name)=>{const e=document.getElementById('sampleState');e.textContent='已导入声音样本：'+name;e.className='status ok';refreshState()};window.onRecordingError=(m)=>alert(m);
+          function createVoice(){Android.createVoice(document.getElementById('voiceName').value,document.getElementById('calibration').value,document.getElementById('consent').checked)}window.onCloneProgress=(m)=>{document.getElementById('cloneState').textContent=m};window.onCloneCreated=(id,state)=>{const e=document.getElementById('cloneState');e.textContent='Voice ID 已创建：'+id+' · '+state;e.className='status ok';refreshState()};window.onVoiceState=(state)=>{refreshState();document.getElementById('cloneState').textContent='音色状态：'+state};window.onCloneError=(m)=>{const e=document.getElementById('cloneState');e.textContent=m;e.className='status warn';alert(m)};function deleteVoice(){if(confirm('删除当前私有音色？此操作也会尝试删除云端 Voice ID。'))Android.deleteVoice()}window.onVoiceDeleted=()=>{document.getElementById('cloneState').textContent='还没有 Voice ID';document.getElementById('voiceLibrary').textContent='未建立';refreshState()};
+          window.onDocumentImported=(name,text)=>{script.value=text;script.dispatchEvent(new Event('input'));document.getElementById('docInfo').textContent='已导入：'+name+' · '+text.length+' 字符';go('studio')};window.onImportError=(m)=>alert(m);
+          function generate(preview){const t=script.value.trim();if(!t){alert('请先导入或粘贴文字');return}document.getElementById('bar').style.width='2%';document.getElementById('genState').textContent='正在提交生成…';Android.synthesize(t,selected,params.intensity,params.speed,params.pause,params.warmth,params.power,preview)}window.onGenerationProgress=(done,total,msg)=>{document.getElementById('genState').textContent=msg+' / '+total;document.getElementById('bar').style.width=Math.max(4,Math.round((done-1)/total*100))+'%'};window.onGenerationComplete=(count,preview)=>{const e=document.getElementById('genState');e.textContent='生成完成 · '+count+' 段 · 正在播放';e.className='status ok';document.getElementById('bar').style.width='100%'};window.onGenerationError=(m)=>{const e=document.getElementById('genState');e.textContent=m;e.className='status warn';document.getElementById('bar').style.width='0';alert(m)};window.onPlaybackStarted=(i,total)=>{document.getElementById('genState').textContent='正在播放 '+i+' / '+total};window.onPlaybackFinished=()=>{const e=document.getElementById('genState');e.textContent='播放完成 ✓';e.className='status ok'};
+          refreshState();
+          </script></body></html>
+          EOF_HTML
+
+          cat > app/src/main/res/values/strings.xml <<'EOF_STRINGS'
+          <?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">声魄 VoiceForge</string></resources>
+          EOF_STRINGS
+
+          cat > app/src/main/res/values/styles.xml <<'EOF_STYLES'
+          <?xml version="1.0" encoding="utf-8"?><resources><style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar"><item name="android:fontFamily">sans</item><item name="android:windowActionModeOverlay">true</item><item name="android:colorAccent">#A92725</item><item name="android:statusBarColor">#0B0B0C</item><item name="android:navigationBarColor">#0B0B0C</item><item name="android:windowLightStatusBar">false</item><item name="android:windowBackground">#0B0B0C</item></style></resources>
+          EOF_STYLES
+
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF_ICON'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+          <path android:fillColor="#0B0B0C" android:pathData="M0,0H108V108H0Z"/><path android:fillColor="#D8B77A" android:pathData="M19,55 C27,55 28,35 35,35 C43,35 43,74 51,74 C59,74 59,25 67,25 C75,25 75,60 83,60 C88,60 89,52 91,48 L91,67 C86,72 80,73 75,69 C69,64 70,46 67,46 C64,46 65,87 51,87 C37,87 38,48 35,48 C32,48 32,64 19,64 Z"/><path android:fillColor="#9E2625" android:pathData="M52,10 C61,24 61,33 55,40 C70,37 77,28 73,17 C87,32 85,51 71,59 C64,63 60,68 58,76 C51,67 44,63 40,56 C32,43 37,24 52,10 Z"/>
+          </vector>
+          EOF_ICON
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -e
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1); fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build APK
+        run: gradle --no-daemon clean assembleDebug
+
+      - name: Package APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/VoiceForge-v0.2.2.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceForge-v0.2.2-APK
+          path: dist/VoiceForge-v0.2.2.apk
+          if-no-files-found: error
+          retention-days: 30
