@@ -1,0 +1,1238 @@
+name: Build VoiceForge v0.3 Offline APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/VoiceForge_v0.3_offline_build-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Create Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/java/com/hansom/voiceforge app/src/main/assets app/src/main/res/values app/src/main/res/drawable app/libs
+          cat > settings.gradle <<'EOF_SETTINGS'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          
+          rootProject.name = "VoiceForgeOffline"
+          include(":app")
+          EOF_SETTINGS
+
+          cat > build.gradle <<'EOF_ROOT'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+          }
+          EOF_ROOT
+
+          cat > gradle.properties <<'EOF_PROPS'
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          EOF_PROPS
+
+          cat > app/build.gradle <<'EOF_APP'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+          
+          android {
+              namespace 'com.hansom.voiceforge'
+              compileSdk 34
+          
+              defaultConfig {
+                  applicationId "com.hansom.voiceforge"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 30
+                  versionName "0.3.0"
+                  ndk {
+                      abiFilters "arm64-v8a"
+                  }
+              }
+          
+              buildTypes {
+                  debug {
+                      debuggable true
+                  }
+                  release {
+                      minifyEnabled false
+                  }
+              }
+          
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          
+              androidResources {
+                  noCompress += ['onnx', 'txt', 'bin']
+              }
+          }
+          
+          dependencies {
+              implementation files('libs/sherpa-onnx-1.13.8.aar')
+              implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+          }
+          EOF_APP
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF_MANIFEST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+          
+              <application
+                  android:allowBackup="true"
+                  android:extractNativeLibs="true"
+                  android:hardwareAccelerated="true"
+                  android:largeHeap="true"
+                  android:icon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="false">
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="keyboardHidden|orientation|screenSize"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF_MANIFEST
+
+          cat > app/src/main/java/com/hansom/voiceforge/MainActivity.kt <<'EOF_KT'
+          package com.hansom.voiceforge
+          
+          import android.Manifest
+          import android.annotation.SuppressLint
+          import android.app.Activity
+          import android.content.ContentValues
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.database.Cursor
+          import android.media.AudioFormat
+          import android.media.AudioRecord
+          import android.media.MediaPlayer
+          import android.media.MediaRecorder
+          import android.net.Uri
+          import android.os.Bundle
+          import android.provider.MediaStore
+          import android.provider.OpenableColumns
+          import android.webkit.JavascriptInterface
+          import android.webkit.WebChromeClient
+          import android.webkit.WebSettings
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import android.widget.Toast
+          import com.k2fsa.sherpa.onnx.GenerationConfig
+          import com.k2fsa.sherpa.onnx.OfflineTts
+          import com.k2fsa.sherpa.onnx.OfflineTtsConfig
+          import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
+          import com.k2fsa.sherpa.onnx.OfflineTtsZipVoiceModelConfig
+          import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+          import com.tom_roush.pdfbox.pdmodel.PDDocument
+          import com.tom_roush.pdfbox.text.PDFTextStripper
+          import org.json.JSONObject
+          import java.io.ByteArrayOutputStream
+          import java.io.File
+          import java.io.FileInputStream
+          import java.io.FileOutputStream
+          import java.io.InputStream
+          import java.io.RandomAccessFile
+          import java.nio.charset.StandardCharsets
+          import java.util.Locale
+          import java.util.concurrent.Executors
+          import java.util.concurrent.atomic.AtomicBoolean
+          import java.util.zip.ZipInputStream
+          import kotlin.math.abs
+          import kotlin.math.max
+          import kotlin.math.min
+          import kotlin.math.tanh
+          
+          class MainActivity : Activity() {
+              companion object {
+                  private const val REQ_MIC = 500
+                  private const val REQ_DOC = 501
+                  private const val SAMPLE_RATE = 24000
+                  private const val MODEL_ASSET_DIR = "zipvoice"
+                  private const val MODEL_VERSION = "zipvoice-int8-zh-en-v1"
+                  private const val REF_FILE = "my_voice_reference.wav"
+          
+                  // The user should read this exact sentence while recording.
+                  private const val REFERENCE_TEXT =
+                      "今天我用自己平时最自然的声音，读这一小段话。声音里有我的语气、节奏和呼吸，也有我平常说话时自然的停顿。以后无论读什么文字，都请保持是我的声音。"
+              }
+          
+              private lateinit var webView: WebView
+              private val executor = Executors.newSingleThreadExecutor()
+              private val recording = AtomicBoolean(false)
+              private var recorder: AudioRecord? = null
+              private var recordThread: Thread? = null
+              private var player: MediaPlayer? = null
+              private var tts: OfflineTts? = null
+          
+              @Volatile private var engineReady = false
+              @Volatile private var engineState = "首次启动：正在准备本地模型"
+              @Volatile private var currentGenerated: File? = null
+          
+              private val referenceFile: File by lazy { File(filesDir, REF_FILE) }
+              private val modelDir: File by lazy { File(filesDir, "models/zipvoice") }
+          
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.statusBarColor = android.graphics.Color.rgb(11, 11, 12)
+                  window.navigationBarColor = android.graphics.Color.rgb(11, 11, 12)
+                  PDFBoxResourceLoader.init(applicationContext)
+          
+                  webView = WebView(this)
+                  setContentView(webView)
+                  webView.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true
+                      allowFileAccess = true
+                      allowContentAccess = true
+                      mediaPlaybackRequiresUserGesture = false
+                      defaultTextEncodingName = "utf-8"
+                      cacheMode = WebSettings.LOAD_DEFAULT
+                  }
+                  webView.webViewClient = WebViewClient()
+                  webView.webChromeClient = WebChromeClient()
+                  webView.addJavascriptInterface(Bridge(), "Android")
+                  webView.loadUrl("file:///android_asset/index.html")
+          
+                  executor.execute { prepareEngine() }
+              }
+          
+              inner class Bridge {
+                  @JavascriptInterface
+                  fun getState(): String {
+                      val o = JSONObject()
+                      o.put("engineReady", engineReady)
+                      o.put("engineState", engineState)
+                      o.put("hasReference", referenceFile.isFile && referenceFile.length() > 1000)
+                      o.put("referenceText", REFERENCE_TEXT)
+                      o.put("referenceBytes", if (referenceFile.isFile) referenceFile.length() else 0)
+                      o.put("hasGenerated", currentGenerated?.isFile == true)
+                      return o.toString()
+                  }
+          
+                  @JavascriptInterface
+                  fun startReferenceRecording() {
+                      runOnUiThread {
+                          if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                              requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
+                          } else {
+                              startRecorder()
+                          }
+                      }
+                  }
+          
+                  @JavascriptInterface
+                  fun stopReferenceRecording() {
+                      stopRecorder()
+                  }
+          
+                  @JavascriptInterface
+                  fun playReference() {
+                      runOnUiThread {
+                          if (!referenceFile.isFile) {
+                              toast("还没有录制参考声音")
+                          } else {
+                              playFile(referenceFile)
+                          }
+                      }
+                  }
+          
+                  @JavascriptInterface
+                  fun deleteReference() {
+                      stopRecorder()
+                      if (referenceFile.exists()) referenceFile.delete()
+                      js("window.onReferenceDeleted&&window.onReferenceDeleted()")
+                  }
+          
+                  @JavascriptInterface
+                  fun pickDocument() {
+                      runOnUiThread {
+                          val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                              addCategory(Intent.CATEGORY_OPENABLE)
+                              type = "*/*"
+                              putExtra(
+                                  Intent.EXTRA_MIME_TYPES,
+                                  arrayOf(
+                                      "text/plain",
+                                      "text/markdown",
+                                      "application/pdf",
+                                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                  )
+                              )
+                          }
+                          startActivityForResult(i, REQ_DOC)
+                      }
+                  }
+          
+                  @JavascriptInterface
+                  fun synthesize(text: String?, style: String?, intensity: Int, preview: Boolean) {
+                      val clean = text?.trim().orEmpty()
+                      if (clean.isEmpty()) {
+                          js("window.onGenerationError&&window.onGenerationError('请先导入或粘贴文字')")
+                          return
+                      }
+                      if (!engineReady) {
+                          js("window.onGenerationError&&window.onGenerationError(${q(engineState)})")
+                          return
+                      }
+                      if (!referenceFile.isFile) {
+                          js("window.onGenerationError&&window.onGenerationError('请先录制“我的音色”参考句')")
+                          return
+                      }
+                      executor.execute {
+                          try {
+                              synthesizeOffline(clean, style ?: "深沉克制", intensity.coerceIn(0, 100), preview)
+                          } catch (t: Throwable) {
+                              js("window.onGenerationError&&window.onGenerationError(${q(friendly(t))})")
+                          }
+                      }
+                  }
+          
+                  @JavascriptInterface
+                  fun replayGenerated() {
+                      runOnUiThread {
+                          val f = currentGenerated
+                          if (f == null || !f.isFile) toast("还没有生成音频") else playFile(f)
+                      }
+                  }
+          
+                  @JavascriptInterface
+                  fun stopAudio() {
+                      runOnUiThread {
+                          player?.runCatching { stop() }
+                          player?.release()
+                          player = null
+                      }
+                  }
+          
+                  @JavascriptInterface
+                  fun saveGenerated() {
+                      val f = currentGenerated
+                      if (f == null || !f.isFile) {
+                          toast("还没有生成音频")
+                          return
+                      }
+                      executor.execute {
+                          try {
+                              val name = "VoiceForge-${System.currentTimeMillis()}.wav"
+                              val values = ContentValues().apply {
+                                  put(MediaStore.Audio.Media.DISPLAY_NAME, name)
+                                  put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
+                                  put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/VoiceForge")
+                                  put(MediaStore.Audio.Media.IS_PENDING, 1)
+                              }
+                              val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+                                  ?: error("无法创建音频文件")
+                              contentResolver.openOutputStream(uri)?.use { out ->
+                                  FileInputStream(f).use { input -> input.copyTo(out) }
+                              } ?: error("无法写入音频文件")
+                              values.clear()
+                              values.put(MediaStore.Audio.Media.IS_PENDING, 0)
+                              contentResolver.update(uri, values, null, null)
+                              js("window.onSaved&&window.onSaved(${q(name)})")
+                          } catch (t: Throwable) {
+                              js("window.onGenerationError&&window.onGenerationError(${q("保存失败：" + (t.message ?: t.javaClass.simpleName))})")
+                          }
+                      }
+                  }
+              }
+          
+              private data class StyleCfg(
+                  val speed: Float,
+                  val silenceScale: Float,
+                  val gain: Float,
+                  val tone: Float,
+                  val chunkGapMs: Int,
+                  val numSteps: Int
+              )
+          
+              private fun styleFor(name: String, intensity: Int): StyleCfg {
+                  val k = intensity / 100f
+                  val target = when (name) {
+                      "机智勇敢" -> StyleCfg(1.10f, 0.72f, 1.04f, -0.12f, 90, 4)
+                      "深情慈悲" -> StyleCfg(0.90f, 1.18f, 0.96f, 0.18f, 260, 5)
+                      "嚣张跋扈" -> StyleCfg(0.96f, 0.72f, 1.13f, -0.08f, 120, 5)
+                      "风流倜傥" -> StyleCfg(1.03f, 0.82f, 1.00f, 0.06f, 120, 4)
+                      "雄浑壮烈" -> StyleCfg(0.86f, 1.25f, 1.16f, 0.14f, 320, 6)
+                      else -> StyleCfg(0.84f, 1.22f, 0.94f, 0.12f, 300, 5)
+                  }
+                  fun mix(neutral: Float, v: Float) = neutral + (v - neutral) * k
+                  return target.copy(
+                      speed = mix(1f, target.speed),
+                      silenceScale = mix(1f, target.silenceScale),
+                      gain = mix(1f, target.gain),
+                      tone = target.tone * k,
+                      chunkGapMs = (120 + (target.chunkGapMs - 120) * k).toInt()
+                  )
+              }
+          
+              private fun transformText(text: String, style: String, intensity: Int): String {
+                  if (intensity < 20) return text
+                  return when (style) {
+                      "机智勇敢" -> text.replace("……", "。").replace("；", "，")
+                      "深情慈悲" -> text.replace("！", "。").replace("?", "？")
+                      "嚣张跋扈" -> text.replace("。", "！")
+                      "风流倜傥" -> text.replace("；", "，")
+                      "雄浑壮烈" -> text.replace("；", "。").replace("：", "——")
+                      else -> text.replace("；", "。")
+                  }
+              }
+          
+              private fun synthesizeOffline(raw: String, style: String, intensity: Int, preview: Boolean) {
+                  val localTts = tts ?: error("本地模型尚未加载完成")
+                  val ref = readOwnWav(referenceFile)
+                  val cfg = styleFor(style, intensity)
+                  var source = if (preview) previewText(raw) else raw
+                  source = transformText(source, style, intensity)
+                  val chunks = splitText(source, if (preview) 120 else 180)
+                  if (chunks.isEmpty()) error("没有可生成的文字")
+          
+                  val outDir = File(filesDir, "generated").apply { mkdirs() }
+                  val outFile = File(outDir, if (preview) "preview.wav" else "latest.wav")
+                  if (outFile.exists()) outFile.delete()
+          
+                  WavStreamWriter(outFile, SAMPLE_RATE).use { writer ->
+                      chunks.forEachIndexed { index, chunk ->
+                          js("window.onGenerationProgress&&window.onGenerationProgress(${index + 1},${chunks.size},${q("本地生成第 ${index + 1} 段")})")
+                          val gc = GenerationConfig(
+                              silenceScale = cfg.silenceScale,
+                              speed = cfg.speed,
+                              sid = 0,
+                              referenceAudio = ref.samples,
+                              referenceSampleRate = ref.sampleRate,
+                              referenceText = REFERENCE_TEXT,
+                              numSteps = cfg.numSteps,
+                              extra = mapOf("min_char_in_sentence" to "2")
+                          )
+                          val audio = localTts.generateWithConfig(text = chunk, config = gc)
+                          writer.append(postProcess(audio.samples, cfg.gain, cfg.tone))
+                          writer.appendSilence(cfg.chunkGapMs)
+                      }
+                  }
+          
+                  currentGenerated = outFile
+                  js("window.onGenerationComplete&&window.onGenerationComplete(${chunks.size},${q(style)})")
+                  runOnUiThread { playFile(outFile) }
+              }
+          
+              private fun postProcess(input: FloatArray, gain: Float, tone: Float): FloatArray {
+                  val out = FloatArray(input.size)
+                  var prev = 0f
+                  for (i in input.indices) {
+                      val x = input[i]
+                      val shaped = if (tone >= 0f) {
+                          // Small low-pass blend: warmer/rounder.
+                          val y = x * (1f - tone.coerceIn(0f, 0.35f)) + prev * tone.coerceIn(0f, 0.35f)
+                          prev = y
+                          y
+                      } else {
+                          // Small high-frequency emphasis: sharper/more forward.
+                          val a = (-tone).coerceIn(0f, 0.25f)
+                          val y = x + a * (x - prev)
+                          prev = x
+                          y
+                      }
+                      out[i] = tanh((shaped * gain).toDouble()).toFloat().coerceIn(-0.99f, 0.99f)
+                  }
+                  return out
+              }
+          
+              private fun prepareEngine() {
+                  try {
+                      engineState = "首次启动：正在释放本地 ZipVoice 模型"
+                      js("window.onEngineState&&window.onEngineState(${q(engineState)},false)")
+                      val marker = File(modelDir, ".ready-$MODEL_VERSION")
+                      if (!marker.isFile) {
+                          if (modelDir.exists()) modelDir.deleteRecursively()
+                          modelDir.mkdirs()
+                          copyAssetTree(MODEL_ASSET_DIR, modelDir)
+                          marker.writeText("ok")
+                      }
+          
+                      val required = listOf(
+                          "encoder.int8.onnx",
+                          "decoder.int8.onnx",
+                          "vocos_24khz.onnx",
+                          "tokens.txt",
+                          "lexicon.txt"
+                      )
+                      required.forEach { name ->
+                          check(File(modelDir, name).isFile) { "模型文件缺失：$name" }
+                      }
+                      check(File(modelDir, "espeak-ng-data").isDirectory) { "模型目录缺失：espeak-ng-data" }
+          
+                      engineState = "正在加载本地声音模型"
+                      js("window.onEngineState&&window.onEngineState(${q(engineState)},false)")
+                      val zip = OfflineTtsZipVoiceModelConfig(
+                          tokens = File(modelDir, "tokens.txt").absolutePath,
+                          encoder = File(modelDir, "encoder.int8.onnx").absolutePath,
+                          decoder = File(modelDir, "decoder.int8.onnx").absolutePath,
+                          vocoder = File(modelDir, "vocos_24khz.onnx").absolutePath,
+                          dataDir = File(modelDir, "espeak-ng-data").absolutePath,
+                          lexicon = File(modelDir, "lexicon.txt").absolutePath
+                      )
+                      val modelCfg = OfflineTtsModelConfig(
+                          zipvoice = zip,
+                          numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                          debug = false,
+                          provider = "cpu"
+                      )
+                      val fullCfg = OfflineTtsConfig(
+                          model = modelCfg,
+                          maxNumSentences = 1,
+                          silenceScale = 1f
+                      )
+                      tts = OfflineTts(assetManager = null, config = fullCfg)
+                      val sr = tts?.sampleRate() ?: 0
+                      check(sr > 0) { "模型加载后采样率无效" }
+                      engineReady = true
+                      engineState = "本地 ZipVoice 已就绪 · ${sr}Hz · 完全离线"
+                      js("window.onEngineState&&window.onEngineState(${q(engineState)},true)")
+                  } catch (t: Throwable) {
+                      engineReady = false
+                      engineState = "本地模型初始化失败：" + friendly(t)
+                      js("window.onEngineState&&window.onEngineState(${q(engineState)},false)")
+                  }
+              }
+          
+              private fun copyAssetTree(assetPath: String, dest: File) {
+                  val list = assets.list(assetPath) ?: emptyArray()
+                  if (list.isEmpty()) {
+                      dest.parentFile?.mkdirs()
+                      assets.open(assetPath).use { input ->
+                          FileOutputStream(dest).use { output -> input.copyTo(output, 1024 * 1024) }
+                      }
+                      return
+                  }
+                  dest.mkdirs()
+                  list.forEach { child ->
+                      copyAssetTree("$assetPath/$child", File(dest, child))
+                  }
+              }
+          
+              private fun startRecorder() {
+                  if (recording.get()) return
+                  val minBuffer = AudioRecord.getMinBufferSize(
+                      SAMPLE_RATE,
+                      AudioFormat.CHANNEL_IN_MONO,
+                      AudioFormat.ENCODING_PCM_16BIT
+                  )
+                  if (minBuffer <= 0) {
+                      toast("当前设备无法建立 24kHz 录音")
+                      return
+                  }
+                  val ar = AudioRecord(
+                      MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                      SAMPLE_RATE,
+                      AudioFormat.CHANNEL_IN_MONO,
+                      AudioFormat.ENCODING_PCM_16BIT,
+                      max(minBuffer, 8192)
+                  )
+                  if (ar.state != AudioRecord.STATE_INITIALIZED) {
+                      ar.release()
+                      toast("麦克风初始化失败")
+                      return
+                  }
+                  recorder = ar
+                  recording.set(true)
+                  ar.startRecording()
+                  js("window.onRecordingStarted&&window.onRecordingStarted()")
+          
+                  recordThread = Thread {
+                      val raw = ByteArrayOutputStream()
+                      val buf = ShortArray(4096)
+                      var totalSamples = 0L
+                      try {
+                          while (recording.get()) {
+                              val n = ar.read(buf, 0, buf.size)
+                              if (n > 0) {
+                                  for (i in 0 until n) {
+                                      val v = buf[i].toInt()
+                                      raw.write(v and 0xff)
+                                      raw.write((v shr 8) and 0xff)
+                                  }
+                                  totalSamples += n
+                                  if (totalSamples >= SAMPLE_RATE * 30L) {
+                                      recording.set(false)
+                                      runOnUiThread { runCatching { ar.stop() } }
+                                  }
+                              }
+                          }
+                      } finally {
+                          runCatching { ar.stop() }
+                          runCatching { ar.release() }
+                          recorder = null
+                          val seconds = totalSamples.toDouble() / SAMPLE_RATE
+                          if (seconds >= 5.0) {
+                              writePcm16Wav(referenceFile, raw.toByteArray(), SAMPLE_RATE)
+                              js("window.onRecordingStopped&&window.onRecordingStopped(${String.format(Locale.US, "%.1f", seconds)})")
+                          } else {
+                              referenceFile.delete()
+                              js("window.onRecordingError&&window.onRecordingError('录音太短，请完整读完参考句，至少 5 秒')")
+                          }
+                      }
+                  }.also {
+                      it.name = "VoiceForgeRecorder"
+                      it.start()
+                  }
+              }
+          
+              private fun stopRecorder() {
+                  recording.set(false)
+                  runCatching { recorder?.stop() }
+              }
+          
+              private data class WavData(val sampleRate: Int, val samples: FloatArray)
+          
+              private fun readOwnWav(file: File): WavData {
+                  val data = file.readBytes()
+                  require(data.size >= 44) { "参考音频损坏" }
+                  require(String(data, 0, 4, Charsets.US_ASCII) == "RIFF") { "参考音频不是 WAV" }
+                  val sr = littleInt(data, 24)
+                  val bits = littleShort(data, 34)
+                  require(bits == 16) { "参考音频必须是 PCM16" }
+                  var pos = 12
+                  var dataOffset = -1
+                  var dataSize = 0
+                  while (pos + 8 <= data.size) {
+                      val id = String(data, pos, 4, Charsets.US_ASCII)
+                      val size = littleInt(data, pos + 4)
+                      if (id == "data") {
+                          dataOffset = pos + 8
+                          dataSize = min(size, data.size - dataOffset)
+                          break
+                      }
+                      pos += 8 + size + (size and 1)
+                  }
+                  require(dataOffset >= 0) { "参考 WAV 缺少 data 区" }
+                  val count = dataSize / 2
+                  val samples = FloatArray(count)
+                  var p = dataOffset
+                  for (i in 0 until count) {
+                      val lo = data[p].toInt() and 0xff
+                      val hi = data[p + 1].toInt()
+                      val s = ((hi shl 8) or lo).toShort()
+                      samples[i] = s / 32768f
+                      p += 2
+                  }
+                  return WavData(sr, samples)
+              }
+          
+              private fun writePcm16Wav(file: File, pcm: ByteArray, sampleRate: Int) {
+                  FileOutputStream(file).use { out ->
+                      val dataSize = pcm.size
+                      out.write("RIFF".toByteArray(Charsets.US_ASCII))
+                      writeLE32(out, 36 + dataSize)
+                      out.write("WAVEfmt ".toByteArray(Charsets.US_ASCII))
+                      writeLE32(out, 16)
+                      writeLE16(out, 1)
+                      writeLE16(out, 1)
+                      writeLE32(out, sampleRate)
+                      writeLE32(out, sampleRate * 2)
+                      writeLE16(out, 2)
+                      writeLE16(out, 16)
+                      out.write("data".toByteArray(Charsets.US_ASCII))
+                      writeLE32(out, dataSize)
+                      out.write(pcm)
+                  }
+              }
+          
+              private class WavStreamWriter(private val file: File, private val sampleRate: Int) : AutoCloseable {
+                  private val raf = RandomAccessFile(file, "rw")
+                  private var sampleCount = 0L
+                  init {
+                      raf.setLength(0)
+                      repeat(44) { raf.write(0) }
+                  }
+                  fun append(samples: FloatArray) {
+                      samples.forEach { f ->
+                          val s = (f.coerceIn(-1f, 1f) * 32767f).toInt().toShort().toInt()
+                          raf.write(s and 0xff)
+                          raf.write((s shr 8) and 0xff)
+                          sampleCount++
+                      }
+                  }
+                  fun appendSilence(ms: Int) {
+                      val n = (sampleRate * ms / 1000.0).toInt()
+                      repeat(n) {
+                          raf.write(0)
+                          raf.write(0)
+                          sampleCount++
+                      }
+                  }
+                  override fun close() {
+                      val dataSize = (sampleCount * 2L).toInt()
+                      raf.seek(0)
+                      raf.writeBytes("RIFF")
+                      writeLE32(raf, 36 + dataSize)
+                      raf.writeBytes("WAVEfmt ")
+                      writeLE32(raf, 16)
+                      writeLE16(raf, 1)
+                      writeLE16(raf, 1)
+                      writeLE32(raf, sampleRate)
+                      writeLE32(raf, sampleRate * 2)
+                      writeLE16(raf, 2)
+                      writeLE16(raf, 16)
+                      raf.writeBytes("data")
+                      writeLE32(raf, dataSize)
+                      raf.close()
+                  }
+                  companion object {
+                      private fun writeLE16(r: RandomAccessFile, v: Int) {
+                          r.write(v and 0xff); r.write((v shr 8) and 0xff)
+                      }
+                      private fun writeLE32(r: RandomAccessFile, v: Int) {
+                          r.write(v and 0xff); r.write((v shr 8) and 0xff)
+                          r.write((v shr 16) and 0xff); r.write((v shr 24) and 0xff)
+                      }
+                  }
+              }
+          
+              private fun splitText(text: String, maxChars: Int): List<String> {
+                  val normalized = text.replace("\r", "").trim()
+                  if (normalized.isEmpty()) return emptyList()
+                  val out = mutableListOf<String>()
+                  val buf = StringBuilder()
+                  fun flush() {
+                      val s = buf.toString().trim()
+                      if (s.isNotEmpty()) out += s
+                      buf.clear()
+                  }
+                  for (c in normalized) {
+                      buf.append(c)
+                      val boundary = c in charArrayOf('。', '！', '？', '!', '?', '；', ';', '\n')
+                      if ((boundary && buf.length >= 30) || buf.length >= maxChars) flush()
+                  }
+                  flush()
+                  return out
+              }
+          
+              private fun previewText(text: String): String {
+                  val t = text.trim()
+                  if (t.length <= 100) return t
+                  var end = min(120, t.length)
+                  for (i in min(120, t.length - 1) downTo 55) {
+                      if (t[i] in charArrayOf('。', '！', '？', '!', '?', '；', ';')) {
+                          end = i + 1
+                          break
+                      }
+                  }
+                  return t.substring(0, end)
+              }
+          
+              override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  if (requestCode == REQ_MIC && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                      startRecorder()
+                  } else if (requestCode == REQ_MIC) {
+                      toast("需要麦克风权限才能建立你的本地音色")
+                  }
+              }
+          
+              @Deprecated("Deprecated in Java")
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode != REQ_DOC || resultCode != RESULT_OK) return
+                  val uri = data?.data ?: return
+                  executor.execute {
+                      try {
+                          val name = getFileName(uri)
+                          val lower = name.lowercase(Locale.ROOT)
+                          val text = when {
+                              lower.endsWith(".docx") -> extractDocx(uri)
+                              lower.endsWith(".pdf") -> extractPdf(uri)
+                              else -> readText(uri)
+                          }
+                          js("window.onDocumentImported&&window.onDocumentImported(${q(name)},${q(text)})")
+                      } catch (t: Throwable) {
+                          js("window.onImportError&&window.onImportError(${q("文档读取失败：" + (t.message ?: t.javaClass.simpleName))})")
+                      }
+                  }
+              }
+          
+              private fun getFileName(uri: Uri): String {
+                  var result = "文档"
+                  val c: Cursor? = contentResolver.query(uri, null, null, null, null)
+                  c?.use {
+                      val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                      if (idx >= 0 && it.moveToFirst()) result = it.getString(idx) ?: result
+                  }
+                  return result
+              }
+          
+              private fun readText(uri: Uri): String {
+                  contentResolver.openInputStream(uri).use { input ->
+                      requireNotNull(input) { "无法打开文件" }
+                      return input.readBytes().toString(StandardCharsets.UTF_8)
+                  }
+              }
+          
+              private fun extractPdf(uri: Uri): String {
+                  contentResolver.openInputStream(uri).use { input ->
+                      requireNotNull(input) { "无法打开 PDF" }
+                      PDDocument.load(input).use { doc ->
+                          return PDFTextStripper().getText(doc).trim()
+                      }
+                  }
+              }
+          
+              private fun extractDocx(uri: Uri): String {
+                  contentResolver.openInputStream(uri).use { input ->
+                      requireNotNull(input) { "无法打开 DOCX" }
+                      ZipInputStream(input).use { zis ->
+                          while (true) {
+                              val e = zis.nextEntry ?: break
+                              if (e.name == "word/document.xml") {
+                                  val xml = zis.readBytes().toString(StandardCharsets.UTF_8)
+                                  return xml
+                                      .replace("</w:p>", "\n")
+                                      .replace("</w:tr>", "\n")
+                                      .replace("</w:tc>", "\t")
+                                      .replace(Regex("<[^>]+>"), "")
+                                      .replace("&amp;", "&")
+                                      .replace("&lt;", "<")
+                                      .replace("&gt;", ">")
+                                      .replace("&quot;", "\"")
+                                      .replace("&#39;", "'")
+                                      .replace(Regex("\n{3,}"), "\n\n")
+                                      .trim()
+                              }
+                          }
+                      }
+                  }
+                  error("DOCX 正文不存在")
+              }
+          
+              private fun playFile(file: File) {
+                  try {
+                      player?.release()
+                      player = MediaPlayer().apply {
+                          setDataSource(file.absolutePath)
+                          prepare()
+                          setOnCompletionListener {
+                              js("window.onPlaybackFinished&&window.onPlaybackFinished()")
+                          }
+                          start()
+                      }
+                      js("window.onPlaybackStarted&&window.onPlaybackStarted()")
+                  } catch (t: Throwable) {
+                      toast("播放失败：" + (t.message ?: t.javaClass.simpleName))
+                  }
+              }
+          
+              private fun js(script: String) {
+                  runOnUiThread { webView.evaluateJavascript(script, null) }
+              }
+          
+              private fun q(s: String): String = JSONObject.quote(s)
+          
+              private fun toast(s: String) {
+                  runOnUiThread { Toast.makeText(this, s, Toast.LENGTH_LONG).show() }
+              }
+          
+              private fun friendly(t: Throwable): String {
+                  val m = t.message ?: t.javaClass.simpleName
+                  return when {
+                      m.contains("memory", true) || m.contains("alloc", true) ->
+                          "手机内存不足。请关闭其他大型应用后再试，或缩短一次生成的文字。"
+                      m.contains("reference", true) ->
+                          "参考声音或参考文字不符合 ZipVoice 要求，请重新录制并完整读出屏幕上的参考句。"
+                      else -> m.take(500)
+                  }
+              }
+          
+              private fun littleInt(b: ByteArray, o: Int): Int =
+                  (b[o].toInt() and 0xff) or
+                      ((b[o + 1].toInt() and 0xff) shl 8) or
+                      ((b[o + 2].toInt() and 0xff) shl 16) or
+                      ((b[o + 3].toInt() and 0xff) shl 24)
+          
+              private fun littleShort(b: ByteArray, o: Int): Int =
+                  (b[o].toInt() and 0xff) or ((b[o + 1].toInt() and 0xff) shl 8)
+          
+              private fun writeLE16(out: FileOutputStream, v: Int) {
+                  out.write(v and 0xff); out.write((v shr 8) and 0xff)
+              }
+          
+              private fun writeLE32(out: FileOutputStream, v: Int) {
+                  out.write(v and 0xff); out.write((v shr 8) and 0xff)
+                  out.write((v shr 16) and 0xff); out.write((v shr 24) and 0xff)
+              }
+          
+              override fun onDestroy() {
+                  stopRecorder()
+                  runCatching { player?.release() }
+                  runCatching { tts?.release() }
+                  executor.shutdownNow()
+                  webView.destroy()
+                  super.onDestroy()
+              }
+          }
+          EOF_KT
+
+          cat > app/src/main/assets/index.html <<'EOF_HTML'
+          <!doctype html>
+          <html lang="zh-CN">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+          <title>声魄 VoiceForge</title>
+          <style>
+          :root{--bg:#0b0b0c;--panel:#141416;--text:#f3eee5;--muted:#9c968c;--red:#9e2625;--gold:#d8b77a;--line:#2c2a29;--ok:#84b58a}
+          *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans SC","Microsoft YaHei",sans-serif}
+          button,input,textarea{font-family:inherit}.app{max-width:760px;margin:auto;padding:20px 16px 108px}.brand{display:flex;align-items:center;gap:10px;margin:4px 0 18px}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#451514,#111);border:1px solid #60412e;display:grid;place-items:center;color:var(--gold);font-weight:800}.brand b{font-size:19px}.brand small{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+          .hero{padding:15px 2px 18px}.hero h1{font-size:31px;line-height:1.13;margin:0 0 11px;letter-spacing:-.7px}.hero p{color:#b8b0a4;line-height:1.7;margin:0;font-size:14px}
+          .card{background:linear-gradient(180deg,#151517,#111113);border:1px solid var(--line);border-radius:20px;padding:16px;margin:12px 0}.card h2{font-size:17px;margin:0 0 6px}.sub{color:var(--muted);font-size:12px;line-height:1.6}
+          .status{padding:11px 12px;border:1px solid #433b30;border-radius:13px;background:#171512;color:#cdbd9e;font-size:12px;line-height:1.55;margin-top:12px}.status.ok{border-color:#38523d;color:#acd2b0;background:#111813}.status.warn{border-color:#6b4228;color:#e2b386;background:#1a1511}
+          .btn{border:0;border-radius:14px;padding:12px 14px;font-size:14px;font-weight:700;background:#242326;color:var(--text)}.btn.primary{background:linear-gradient(135deg,#a82d2a,#701a19)}.btn.gold{background:linear-gradient(135deg,#d8b77a,#a47d43);color:#16120d}.btn.ghost{background:transparent;border:1px solid var(--line)}.btn:active{transform:scale(.98)}.row{display:flex;gap:9px;flex-wrap:wrap}
+          .prompt{background:#0e0e10;border:1px solid #403729;border-radius:15px;padding:14px;color:#e5d8c1;font-size:14px;line-height:1.75;margin-top:12px}.wave{height:54px;border-radius:13px;background:repeating-linear-gradient(90deg,#3e2925 0 2px,transparent 2px 7px),linear-gradient(#171719,#111);margin:12px 0}.recording{outline:1px solid var(--red);box-shadow:0 0 0 4px rgba(158,38,37,.1)}
+          textarea{width:100%;min-height:200px;background:#0e0e10;color:var(--text);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:14px;line-height:1.7;resize:vertical;outline:none}.styles{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.style{padding:13px;border:1px solid var(--line);border-radius:15px;background:#171719}.style.active{border-color:#8d7046;background:linear-gradient(145deg,#2b241a,#171719)}.style b{font-size:14px}.style p{font-size:11px;color:var(--muted);line-height:1.45;margin:6px 0 0}
+          label.range{display:block;font-size:12px;color:#c7c0b5;margin:15px 0 4px}.rangehead{display:flex;justify-content:space-between}.rangehead span:last-child{color:var(--gold)}input[type=range]{width:100%;accent-color:#a32a27}.progress{height:7px;background:#242326;border-radius:99px;overflow:hidden;margin-top:10px}.bar{height:100%;width:0;background:linear-gradient(90deg,#8d2926,#d8b77a);transition:.25s}
+          .meta{display:flex;justify-content:space-between;color:#817c74;font-size:11px;margin:8px 2px}.notice{font-size:11px;color:#847f77;line-height:1.6;margin-top:11px}.nav{position:fixed;left:0;right:0;bottom:0;background:rgba(12,12,13,.97);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 8px 15px}.nav button{background:none;border:0;color:#77736d;font-size:11px}.nav button.active{color:var(--gold)}.screen{display:none}.screen.active{display:block}
+          @media(max-width:380px){.hero h1{font-size:28px}.styles{grid-template-columns:1fr}.btn{padding:11px 12px}}
+          </style>
+          </head>
+          <body>
+          <div class="app">
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE ZIPVOICE · v0.3</small></div></div>
+          
+            <section id="home" class="screen active">
+              <div class="hero"><h1>你的声音，<br>全部在手机里完成。</h1><p>不用 API，不用电脑，不把声音上传到任何服务器。录一次参考句，然后离线朗读你的文档。</p></div>
+          
+              <div class="card">
+                <h2>① 本地 AI 引擎</h2>
+                <div class="sub">ZipVoice-Distill INT8 + sherpa-onnx，中文/英文零样本声音克隆。</div>
+                <div id="engineState" class="status">首次启动：正在准备本地模型</div>
+                <div class="notice">第一次打开会把模型从 APK 释放到手机私有目录，可能需要几十秒；以后不再重复。</div>
+              </div>
+          
+              <div class="card">
+                <h2>② 录制“我的音色”</h2>
+                <div class="sub">请用你最自然的声音，把下面这段话完整读一遍。不要表演，不要故意压低声音。</div>
+                <div id="refText" class="prompt"></div>
+                <div id="wave" class="wave"></div>
+                <div class="row">
+                  <button id="recordBtn" class="btn primary" onclick="toggleRecord()">● 开始录音</button>
+                  <button class="btn" onclick="Android.playReference()">▶ 听原声</button>
+                  <button class="btn ghost" onclick="deleteRef()">重录/删除</button>
+                </div>
+                <div id="refState" class="status">还没有参考声音</div>
+              </div>
+          
+              <div class="card">
+                <h2>③ 导入文档</h2>
+                <div class="sub">支持 TXT / MD / DOCX / PDF，也可以直接粘贴文字。</div>
+                <div class="row" style="margin-top:12px">
+                  <button class="btn gold" onclick="Android.pickDocument()">＋ 选择文档</button>
+                  <button class="btn" onclick="go('studio')">直接粘贴</button>
+                </div>
+                <div id="docState" class="status">还没有导入文档</div>
+              </div>
+          
+              <button class="btn primary" style="width:100%;margin-top:4px" onclick="go('studio')">进入导演台 →</button>
+            </section>
+          
+            <section id="studio" class="screen">
+              <div class="hero"><h1 style="font-size:28px">导演台</h1><p>先锁定“你是谁”，再改变“怎么说”。</p></div>
+          
+              <div class="card">
+                <h2>朗读脚本</h2>
+                <textarea id="script" placeholder="导入文档，或者把文字粘贴到这里……"></textarea>
+                <div class="meta"><span id="chars">0 字</span><span id="eta">预计 0 分钟</span></div>
+              </div>
+          
+              <div class="card">
+                <h2>六种演绎</h2>
+                <div class="sub">全部使用同一段你的参考声音。风格主要通过本地语速、停顿、句间节奏、能量和轻量音色处理塑造。</div>
+                <div id="styles" class="styles"></div>
+                <label class="range"><div class="rangehead"><span>风格强度</span><span id="intensityV">75</span></div><input id="intensity" type="range" min="0" max="100" value="75" oninput="intensityV.textContent=this.value"></label>
+          
+                <div class="row" style="margin-top:16px">
+                  <button class="btn gold" onclick="generate(true)">试听一小段</button>
+                  <button class="btn primary" onclick="generate(false)">生成整篇</button>
+                  <button class="btn" onclick="Android.stopAudio()">停止</button>
+                  <button class="btn ghost" onclick="Android.replayGenerated()">重播</button>
+                  <button class="btn ghost" onclick="Android.saveGenerated()">保存 WAV</button>
+                </div>
+                <div id="genState" class="status">等待生成</div>
+                <div class="progress"><div id="bar" class="bar"></div></div>
+                <div class="notice">本地 ZipVoice 的强项是“像你”。六种表演不会像大型云端模型那样理解复杂导演语言，但不会再换成系统 TTS 的陌生声音。</div>
+              </div>
+            </section>
+          
+            <section id="voice" class="screen">
+              <div class="hero"><h1 style="font-size:28px">我的音色</h1><p>没有 Voice ID，没有云端账户。你的参考 WAV 就是你的本地声音身份。</p></div>
+              <div class="card"><h2>本地参考声音</h2><div id="voiceState" class="status">未录制</div><button class="btn" style="margin-top:12px" onclick="go('home')">重新录制</button></div>
+              <div class="card"><h2>为什么要读固定参考句</h2><div class="sub">ZipVoice 需要“参考声音 + 参考声音逐字对应的文字”。两者越一致，克隆出来的音色通常越稳定。</div></div>
+            </section>
+          
+            <section id="about" class="screen">
+              <div class="hero"><h1 style="font-size:28px">离线版</h1><p>这版的设计目标只有一个：真正让手机独立完成声音克隆。</p></div>
+              <div class="card"><h2>隐私</h2><div class="sub">录音、模型、文档和生成 WAV 都在手机本地处理。App 本身不需要网络权限。</div></div>
+              <div class="card"><h2>模型</h2><div class="sub">ZipVoice-Distill INT8，中文/英文零样本克隆；运行时为 sherpa-onnx Android AAR。</div></div>
+            </section>
+          </div>
+          
+          <nav class="nav">
+          <button class="active" data-go="home" onclick="go('home')">⌂<br>首页</button>
+          <button data-go="voice" onclick="go('voice')">◉<br>音色</button>
+          <button data-go="studio" onclick="go('studio')">✦<br>导演台</button>
+          <button data-go="about" onclick="go('about')">☰<br>关于</button>
+          </nav>
+          
+          <script>
+          const presets=[
+          ["深沉克制","低沉、慢一些、长停顿、句尾收住。"],
+          ["机智勇敢","明快、果断、节奏紧、锋利一点。"],
+          ["深情慈悲","温暖、从容、停顿柔和、不煽情。"],
+          ["嚣张跋扈","强势、前冲、短停顿、力度更大。"],
+          ["风流倜傥","松弛、利落、略快、带一点轻盈。"],
+          ["雄浑壮烈","厚重、慢、段落推进明显、能量更强。"]
+          ];
+          let selected="深沉克制", recording=false;
+          
+          function go(id){
+           document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('active',x.id===id));
+           document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.go===id));
+           scrollTo(0,0); refresh();
+          }
+          function renderStyles(){
+           styles.innerHTML=presets.map(([n,d])=>`<div class="style ${selected===n?'active':''}" onclick="selected='${n}';renderStyles()"><b>${n}</b><p>${d}</p></div>`).join('');
+          }
+          renderStyles();
+          
+          const script=document.getElementById('script');
+          script.addEventListener('input',()=>{
+           const n=script.value.replace(/\s/g,'').length;
+           chars.textContent=n+' 字';
+           eta.textContent='预计 '+(n?Math.max(1,Math.ceil(n/240)):0)+' 分钟';
+          });
+          
+          function refresh(){
+           try{
+             const s=JSON.parse(Android.getState());
+             engineState.textContent=s.engineState||'模型状态未知';
+             engineState.className='status '+(s.engineReady?'ok':'warn');
+             refText.textContent=s.referenceText||'';
+             const refMsg=s.hasReference?'我的本地音色已准备 ✓ · '+Math.round((s.referenceBytes||0)/1024)+' KB':'还没有参考声音';
+             refState.textContent=refMsg; refState.className='status '+(s.hasReference?'ok':'');
+             voiceState.textContent=refMsg; voiceState.className='status '+(s.hasReference?'ok':'');
+           }catch(e){}
+          }
+          function toggleRecord(){
+           if(!recording) Android.startReferenceRecording();
+           else Android.stopReferenceRecording();
+          }
+          window.onRecordingStarted=()=>{
+           recording=true; recordBtn.textContent='■ 停止录音'; wave.classList.add('recording');
+           refState.textContent='正在录音…完整读完参考句后点“停止录音”';
+          };
+          window.onRecordingStopped=(sec)=>{
+           recording=false; recordBtn.textContent='● 重新录音'; wave.classList.remove('recording');
+           refState.textContent='参考声音已保存 · '+sec+' 秒 ✓'; refState.className='status ok'; refresh();
+          };
+          window.onRecordingError=(m)=>{
+           recording=false; recordBtn.textContent='● 开始录音'; wave.classList.remove('recording'); alert(m); refresh();
+          };
+          function deleteRef(){
+           if(confirm('删除当前参考声音并重新录制？')) Android.deleteReference();
+          }
+          window.onReferenceDeleted=()=>refresh();
+          window.onEngineState=(msg,ok)=>{
+           engineState.textContent=msg; engineState.className='status '+(ok?'ok':'warn');
+          };
+          window.onDocumentImported=(name,text)=>{
+           script.value=text; script.dispatchEvent(new Event('input'));
+           docState.textContent='已导入：'+name+' · '+text.length+' 字符'; docState.className='status ok';
+           go('studio');
+          };
+          window.onImportError=(m)=>alert(m);
+          
+          function generate(preview){
+           const t=script.value.trim();
+           if(!t){alert('请先导入或粘贴文字');return}
+           genState.textContent='准备本地生成…'; genState.className='status';
+           bar.style.width='2%';
+           Android.synthesize(t,selected,+intensity.value,preview);
+          }
+          window.onGenerationProgress=(done,total,msg)=>{
+           genState.textContent=msg+' / '+total;
+           bar.style.width=Math.max(4,Math.round((done-1)/total*100))+'%';
+          };
+          window.onGenerationComplete=(count,style)=>{
+           genState.textContent='生成完成 · '+style+' · '+count+' 段 · 正在播放';
+           genState.className='status ok'; bar.style.width='100%';
+          };
+          window.onGenerationError=(m)=>{
+           genState.textContent=m; genState.className='status warn'; bar.style.width='0%'; alert(m);
+          };
+          window.onPlaybackStarted=()=>{genState.textContent='正在播放本地生成音频…'};
+          window.onPlaybackFinished=()=>{genState.textContent='播放完成 ✓';genState.className='status ok'};
+          window.onSaved=(name)=>alert('已保存到 Music/VoiceForge：'+name);
+          
+          refresh();
+          </script>
+          </body>
+          </html>
+          EOF_HTML
+
+          cat > app/src/main/res/values/strings.xml <<'EOF_STRINGS'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">声魄 VoiceForge</string>
+          </resources>
+          EOF_STRINGS
+
+          cat > app/src/main/res/values/styles.xml <<'EOF_STYLES'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:colorAccent">#A92725</item>
+                  <item name="android:statusBarColor">#0B0B0C</item>
+                  <item name="android:navigationBarColor">#0B0B0C</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowBackground">#0B0B0C</item>
+              </style>
+          </resources>
+          EOF_STYLES
+
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF_ICON'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#0B0B0C" android:pathData="M0,0H108V108H0Z"/>
+              <path android:fillColor="#D8B77A"
+                  android:pathData="M18,56 C26,56 27,37 35,37 C43,37 43,73 51,73 C59,73 59,25 67,25 C75,25 75,61 83,61 C88,61 90,53 92,48 L92,67 C86,74 79,74 74,69 C69,64 70,47 67,47 C64,47 65,87 51,87 C37,87 38,49 35,49 C32,49 32,65 18,65 Z"/>
+              <path android:fillColor="#9E2625"
+                  android:pathData="M52,10 C61,24 61,33 55,40 C70,37 77,28 73,17 C87,32 85,51 71,59 C64,63 60,68 58,76 C51,67 44,63 40,56 C32,43 37,24 52,10 Z"/>
+          </vector>
+          EOF_ICON
+
+      - name: Download sherpa-onnx Android runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 5 --retry-delay 3 -o app/libs/sherpa-onnx-1.13.8.aar "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar"
+          test -s app/libs/sherpa-onnx-1.13.8.aar
+          ls -lh app/libs/sherpa-onnx-1.13.8.aar
+
+      - name: Download and embed ZipVoice offline model
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/voiceforge-model app/src/main/assets/zipvoice
+          curl -fL --retry 5 --retry-delay 3 -o /tmp/zipvoice.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2"
+          tar -xjf /tmp/zipvoice.tar.bz2 -C /tmp/voiceforge-model
+          MODEL_DIR=/tmp/voiceforge-model/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia
+          test -d "$MODEL_DIR"
+          rm -rf "$MODEL_DIR/test_wavs" || true
+          cp -a "$MODEL_DIR/." app/src/main/assets/zipvoice/
+          curl -fL --retry 5 --retry-delay 3 -o app/src/main/assets/zipvoice/vocos_24khz.onnx "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx"
+          test -s app/src/main/assets/zipvoice/encoder.int8.onnx
+          test -s app/src/main/assets/zipvoice/decoder.int8.onnx
+          test -s app/src/main/assets/zipvoice/vocos_24khz.onnx
+          test -s app/src/main/assets/zipvoice/tokens.txt
+          test -s app/src/main/assets/zipvoice/lexicon.txt
+          test -d app/src/main/assets/zipvoice/espeak-ng-data
+          echo 'Model payload:'
+          du -sh app/src/main/assets/zipvoice
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1); fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build offline APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon clean assembleDebug
+
+      - name: Verify APK contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          unzip -l "$APK" | grep -q 'assets/zipvoice/encoder.int8.onnx'
+          unzip -l "$APK" | grep -q 'assets/zipvoice/decoder.int8.onnx'
+          unzip -l "$APK" | grep -q 'assets/zipvoice/vocos_24khz.onnx'
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libsherpa-onnx-jni.so'
+          mkdir -p dist
+          cp "$APK" dist/VoiceForge-v0.3.0-OFFLINE.apk
+          sha256sum dist/VoiceForge-v0.3.0-OFFLINE.apk | tee dist/SHA256.txt
+          ls -lh dist/VoiceForge-v0.3.0-OFFLINE.apk
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceForge-v0.3.0-OFFLINE-APK
+          path: |
+            dist/VoiceForge-v0.3.0-OFFLINE.apk
+            dist/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
