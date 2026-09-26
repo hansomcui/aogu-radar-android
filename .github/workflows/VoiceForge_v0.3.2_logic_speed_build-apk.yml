@@ -1,1 +1,787 @@
+name: Build VoiceForge v0.3.2 Logic+Speed APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/VoiceForge_v0.3.2_logic_speed_build-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Recreate v0.3.1 project and apply v0.3.2 patches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          src_path = Path(
+              ".github/workflows/VoiceForge_v0.3.1_offline_build-apk.yml"
+          )
+          if not src_path.exists():
+              raise SystemExit("v0.3.1 workflow not found")
+
+          src = src_path.read_text(encoding="utf-8")
+
+          def extract(path, marker):
+              lines = src.splitlines()
+              start = None
+
+              needle = f"cat > {path} <<'{marker}'"
+
+              for i, line in enumerate(lines):
+                  if needle in line:
+                      start = i + 1
+                      break
+
+              if start is None:
+                  raise SystemExit(f"Cannot find {path}")
+
+              body = []
+
+              for line in lines[start:]:
+                  if line.strip() == marker:
+                      break
+
+                  if line.startswith("          "):
+                      line = line[10:]
+
+                  body.append(line)
+
+              p = Path(path)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(
+                  "\n".join(body) + "\n",
+                  encoding="utf-8"
+              )
+
+          extract("settings.gradle", "EOF_SETTINGS")
+          extract("build.gradle", "EOF_ROOT")
+          extract("gradle.properties", "EOF_PROPS")
+          extract("app/build.gradle", "EOF_APP")
+
+          extract(
+              "app/src/main/AndroidManifest.xml",
+              "EOF_MANIFEST"
+          )
+
+          extract(
+              "app/src/main/java/com/hansom/voiceforge/MainActivity.kt",
+              "EOF_KT"
+          )
+
+          extract(
+              "app/src/main/assets/index.html",
+              "EOF_HTML"
+          )
+
+          extract(
+              "app/src/main/res/values/strings.xml",
+              "EOF_STRINGS"
+          )
+
+          extract(
+              "app/src/main/res/values/styles.xml",
+              "EOF_STYLES"
+          )
+
+          extract(
+              "app/src/main/res/drawable/ic_launcher.xml",
+              "EOF_ICON"
+          )
+
+          # -----------------------------
+          # VERSION
+          # -----------------------------
+
+          gradle = Path("app/build.gradle").read_text(
+              encoding="utf-8"
+          )
+
+          gradle = gradle.replace(
+              'versionCode 31',
+              'versionCode 32'
+          )
+
+          gradle = gradle.replace(
+              'versionName "0.3.1"',
+              'versionName "0.3.2"'
+          )
+
+          Path("app/build.gradle").write_text(
+              gradle,
+              encoding="utf-8"
+          )
+
+          kt_path = Path(
+              "app/src/main/java/com/hansom/voiceforge/MainActivity.kt"
+          )
+
+          kt = kt_path.read_text(encoding="utf-8")
+
+          # =====================================================
+          # SPEED FIX
+          # =====================================================
+
+          # ZipVoice distilled official examples use 4 steps.
+          # Force every style to 4 steps instead of 5/6.
+          kt = re.sub(
+              r'StyleCfg\(([^)]*?),\s*(?:4|5|6)\)',
+              lambda m: 'StyleCfg(' + m.group(1) + ', 4)',
+              kt
+          )
+
+          # Allow slightly better batching.
+          kt = kt.replace(
+              "maxNumSentences = 1,",
+              "maxNumSentences = 2,",
+              1
+          )
+
+          # =====================================================
+          # LOGICAL CHUNKING FIX
+          # =====================================================
+
+          kt = kt.replace(
+              "val chunks = splitText(source, if (preview) 120 else 180)",
+              "val chunks = splitText(source, if (preview) 120 else 300)",
+              1
+          )
+
+          start = kt.find(
+              "    private fun splitText(text: String, maxChars: Int): List<String> {"
+          )
+
+          end = kt.find(
+              "    private fun previewText(text: String): String {",
+              start
+          )
+
+          if start < 0 or end < 0:
+              raise SystemExit("Cannot locate splitText")
+
+          new_splitter = r'''    /**
+     * Semantic Chinese chunking:
+     *
+     * 1. Respect paragraphs.
+     * 2. Keep complete sentences ending with 。！？； intact.
+     * 3. Pack several complete sentences into one 220-320 char block.
+     * 4. Only split an abnormally long sentence at ：——， as fallback.
+     */
+    private fun splitText(
+        text: String,
+        maxChars: Int
+    ): List<String> {
+
+        val normalized = text
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .replace(Regex("[ \t]+"), " ")
+            .trim()
+
+        if (normalized.isEmpty()) {
+            return emptyList()
+        }
+
+        val targetMin = 180
+        val targetMax =
+            max(240, maxChars).coerceAtMost(340)
+
+        val paragraphs = normalized
+            .split(Regex("\n\\s*\n+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        val output = mutableListOf<String>()
+
+        val pack = StringBuilder()
+
+        fun flushPack() {
+
+            val s = pack
+                .toString()
+                .trim()
+
+            if (s.isNotEmpty()) {
+                output += s
+            }
+
+            pack.clear()
+        }
+
+        fun appendSentence(sentence: String) {
+
+            val s = sentence.trim()
+
+            if (s.isEmpty()) {
+                return
+            }
+
+            // Extremely long individual sentence.
+            if (s.length > targetMax) {
+
+                if (pack.isNotEmpty()) {
+                    flushPack()
+                }
+
+                splitLongSentence(
+                    s,
+                    targetMin,
+                    targetMax
+                ).forEach {
+
+                    if (it.isNotBlank()) {
+                        output += it.trim()
+                    }
+                }
+
+                return
+            }
+
+            if (pack.isEmpty()) {
+
+                pack.append(s)
+
+                return
+            }
+
+            val projected =
+                pack.length + s.length
+
+            if (projected <= targetMax) {
+
+                pack.append(s)
+
+            } else {
+
+                flushPack()
+
+                pack.append(s)
+            }
+        }
+
+        paragraphs.forEachIndexed {
+                paragraphIndex,
+                paragraph ->
+
+            val sentences =
+                splitIntoLogicalSentences(
+                    paragraph
+                )
+
+            sentences.forEach {
+                appendSentence(it)
+            }
+
+            // Prefer breathing at paragraph boundaries,
+            // but do not create tiny generation blocks.
+            if (
+                pack.length >= targetMin ||
+                paragraphIndex == paragraphs.lastIndex
+            ) {
+
+                flushPack()
+
+            } else if (pack.isNotEmpty()) {
+
+                pack.append('\n')
+            }
+        }
+
+        flushPack()
+
+        return output
+    }
+
+
+    private fun splitIntoLogicalSentences(
+        paragraph: String
+    ): List<String> {
+
+        val output =
+            mutableListOf<String>()
+
+        val buf =
+            StringBuilder()
+
+        var i = 0
+
+        while (i < paragraph.length) {
+
+            val c =
+                paragraph[i]
+
+            buf.append(c)
+
+            val endSentence =
+                c in charArrayOf(
+                    '。',
+                    '！',
+                    '？',
+                    '!',
+                    '?',
+                    '；',
+                    ';'
+                )
+
+            if (endSentence) {
+
+                // Closing quotes/brackets belong
+                // to the sentence before them.
+                var j = i + 1
+
+                while (
+                    j < paragraph.length &&
+                    paragraph[j] in charArrayOf(
+                        '”',
+                        '’',
+                        '"',
+                        '\'',
+                        '》',
+                        '）',
+                        ')',
+                        '】',
+                        ']'
+                    )
+                ) {
+
+                    buf.append(
+                        paragraph[j]
+                    )
+
+                    j++
+                }
+
+                val sentence =
+                    buf
+                        .toString()
+                        .trim()
+
+                if (sentence.isNotEmpty()) {
+                    output += sentence
+                }
+
+                buf.clear()
+
+                i = j
+
+                continue
+            }
+
+            i++
+        }
+
+        val tail =
+            buf
+                .toString()
+                .trim()
+
+        if (tail.isNotEmpty()) {
+            output += tail
+        }
+
+        return output
+    }
+
+
+    private fun splitLongSentence(
+        sentence: String,
+        targetMin: Int,
+        targetMax: Int
+    ): List<String> {
+
+        val output =
+            mutableListOf<String>()
+
+        var remaining =
+            sentence.trim()
+
+        while (
+            remaining.length >
+            targetMax
+        ) {
+
+            val start =
+                targetMin.coerceAtMost(
+                    remaining.length - 1
+                )
+
+            val end =
+                targetMax.coerceAtMost(
+                    remaining.length - 1
+                )
+
+            var cut = -1
+
+            // Strong clause boundaries first.
+            for (
+                i in end downTo start
+            ) {
+
+                if (
+                    remaining[i] in
+                    charArrayOf(
+                        '：',
+                        ':',
+                        '—'
+                    )
+                ) {
+
+                    cut = i + 1
+                    break
+                }
+            }
+
+            // Comma only as fallback.
+            if (cut <= 0) {
+
+                for (
+                    i in end downTo start
+                ) {
+
+                    if (
+                        remaining[i] in
+                        charArrayOf(
+                            '，',
+                            ',',
+                            '、'
+                        )
+                    ) {
+
+                        cut = i + 1
+                        break
+                    }
+                }
+            }
+
+            // Text with no punctuation at all.
+            if (cut <= 0) {
+                cut = targetMax
+            }
+
+            output +=
+                remaining
+                    .substring(
+                        0,
+                        cut
+                    )
+                    .trim()
+
+            remaining =
+                remaining
+                    .substring(cut)
+                    .trim()
+        }
+
+        if (remaining.isNotEmpty()) {
+            output += remaining
+        }
+
+        return output
+    }
+
+'''
+
+          kt = (
+              kt[:start] +
+              new_splitter +
+              kt[end:]
+          )
+
+          kt = kt.replace(
+              '"本地生成第 ${index + 1} 段"',
+              '"逻辑段 ${index + 1} / ${chunks.size}"'
+          )
+
+          kt_path.write_text(
+              kt,
+              encoding="utf-8"
+          )
+
+          # -----------------------------
+          # UI VERSION / EXPLANATION
+          # -----------------------------
+
+          html_path = Path(
+              "app/src/main/assets/index.html"
+          )
+
+          html = html_path.read_text(
+              encoding="utf-8"
+          )
+
+          html = html.replace(
+              "OFFLINE ZIPVOICE · v0.3.1",
+              "OFFLINE ZIPVOICE · v0.3.2"
+          )
+
+          html = html.replace(
+              "本地 ZipVoice 的强项是“像你”。六种表演不会像大型云端模型那样理解复杂导演语言，但不会再换成系统 TTS 的陌生声音。",
+              "v0.3.2 会先按自然段和完整句子做逻辑分段，再把多个完整句子合并成较大的生成块；同时统一采用 ZipVoice 蒸馏模型官方常用的 4 步推理，减少等待时间。"
+          )
+
+          html_path.write_text(
+              html,
+              encoding="utf-8"
+          )
+
+          # -----------------------------
+          # PRECHECK
+          # -----------------------------
+
+          checks = {
+              "v032":
+                  'versionName "0.3.2"' in gradle,
+
+              "4_steps":
+                  not re.search(
+                      r"StyleCfg\([^)]*,\s*[56]\)",
+                      kt
+                  ),
+
+              "batch2":
+                  "maxNumSentences = 2" in kt,
+
+              "300_chars":
+                  "else 300" in kt,
+
+              "semantic":
+                  all(
+                      x in kt
+                      for x in (
+                          "splitIntoLogicalSentences",
+                          "splitLongSentence",
+                          "targetMin = 180",
+                          "targetMax"
+                      )
+                  ),
+
+              "audio_track":
+                  "AudioTrack.Builder()" in kt,
+
+              "no_media_player":
+                  "MediaPlayer" not in kt,
+
+              "clone_reference":
+                  all(
+                      x in kt
+                      for x in (
+                          "referenceAudio = ref.samples",
+                          "referenceSampleRate = ref.sampleRate",
+                          "referenceText = REFERENCE_TEXT"
+                      )
+                  )
+          }
+
+          print(checks)
+
+          if not all(
+              checks.values()
+          ):
+              raise SystemExit(
+                  "v0.3.2 precheck failed"
+              )
+
+          PY
+
+
+      - name: Download sherpa-onnx runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p app/libs
+
+          curl -fL \
+            --retry 5 \
+            --retry-delay 3 \
+            -o app/libs/sherpa-onnx-1.13.8.aar \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar"
+
+          test -s \
+            app/libs/sherpa-onnx-1.13.8.aar
+
+
+      - name: Download ZipVoice model
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p \
+            /tmp/voiceforge-model \
+            app/src/main/assets/zipvoice
+
+          curl -fL \
+            --retry 5 \
+            --retry-delay 3 \
+            -o /tmp/zipvoice.tar.bz2 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2"
+
+          tar -xjf \
+            /tmp/zipvoice.tar.bz2 \
+            -C /tmp/voiceforge-model
+
+          MODEL_DIR=/tmp/voiceforge-model/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia
+
+          test -d "$MODEL_DIR"
+
+          rm -rf \
+            "$MODEL_DIR/test_wavs" \
+            || true
+
+          cp -a \
+            "$MODEL_DIR/." \
+            app/src/main/assets/zipvoice/
+
+          curl -fL \
+            --retry 5 \
+            --retry-delay 3 \
+            -o app/src/main/assets/zipvoice/vocos_24khz.onnx \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx"
+
+          test -s \
+            app/src/main/assets/zipvoice/encoder.int8.onnx
+
+          test -s \
+            app/src/main/assets/zipvoice/decoder.int8.onnx
+
+          test -s \
+            app/src/main/assets/zipvoice/vocos_24khz.onnx
+
+          test -s \
+            app/src/main/assets/zipvoice/tokens.txt
+
+          test -s \
+            app/src/main/assets/zipvoice/lexicon.txt
+
+          test -d \
+            app/src/main/assets/zipvoice/espeak-ng-data
+
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+
+      - name: Install Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export \
+            ANDROID_HOME=/usr/local/lib/android/sdk
+
+          export \
+            ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+
+            SDKMANAGER=$(
+              find \
+                "$ANDROID_HOME/cmdline-tools" \
+                -type f \
+                -name sdkmanager \
+                | head -n 1
+            )
+
+          fi
+
+          yes | \
+            "$SDKMANAGER" \
+            --licenses \
+            >/dev/null \
+            || true
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+
+      - name: Build v0.3.2
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gradle \
+            --no-daemon \
+            clean \
+            assembleDebug
+
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK=app/build/outputs/apk/debug/app-debug.apk
+
+          test -s "$APK"
+
+          unzip -t \
+            "$APK" \
+            >/dev/null
+
+          test \
+            $(stat -c%s "$APK") \
+            -gt 150000000
+
+          unzip -l "$APK" \
+            | grep -q \
+              'assets/zipvoice/encoder.int8.onnx'
+
+          unzip -l "$APK" \
+            | grep -q \
+              'assets/zipvoice/decoder.int8.onnx'
+
+          unzip -l "$APK" \
+            | grep -q \
+              'assets/zipvoice/vocos_24khz.onnx'
+
+          unzip -l "$APK" \
+            | grep -q \
+              'lib/arm64-v8a/libsherpa-onnx-jni.so'
+
+          mkdir -p dist
+
+          cp \
+            "$APK" \
+            dist/VoiceForge-v0.3.2-OFFLINE.apk
+
+          sha256sum \
+            dist/VoiceForge-v0.3.2-OFFLINE.apk \
+            | tee dist/SHA256.txt
+
+
+      - name: Upload v0.3.2 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceForge-v0.3.2-OFFLINE-APK
+          path: |
+            dist/VoiceForge-v0.3.2-OFFLINE.apk
+            dist/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
