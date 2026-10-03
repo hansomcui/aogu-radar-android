@@ -1,1 +1,1613 @@
+name: Build VoiceForge v0.4 Trilingual APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/VoiceForge_v0.4_trilingual_build-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.17.0"
+
+      - name: Create VoiceForge v0.4 project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx --yes create-expo-app@latest voiceforge-v04 --template blank --yes
+          cd voiceforge-v04
+
+          npx expo install \
+            expo-audio \
+            expo-file-system \
+            expo-sharing \
+            expo-build-properties \
+            expo-device
+
+          npm install --save-exact \
+            @qvac/sdk@0.20.1 \
+            @qvac/tts-ggml@0.10.1 \
+            @qvac/tts-ggml-android-arm64@0.10.1 \
+            react-native-bare-kit@0.15.5
+
+          npm install -D --save-exact bare-pack@2.2.2
+
+          chmod +x node_modules/bare-pack/bin.js
+
+          cat > qvac.config.json <<'EOF'
+          {
+            "plugins": [
+              "@qvac/sdk/tts-ggml/plugin"
+            ]
+          }
+          EOF
+
+          cat > app.json <<'EOF'
+          {
+            "expo": {
+              "name": "声魄 VoiceForge 三语",
+              "slug": "voiceforge-trilingual",
+              "version": "0.4.0",
+              "orientation": "portrait",
+              "userInterfaceStyle": "dark",
+              "android": {
+                "package": "com.hansom.voiceforge.trilingual",
+                "versionCode": 40,
+                "allowBackup": false,
+                "permissions": [
+                  "RECORD_AUDIO",
+                  "INTERNET"
+                ]
+              },
+              "plugins": [
+                [
+                  "expo-build-properties",
+                  {
+                    "android": {
+                      "minSdkVersion": 29,
+                      "compileSdkVersion": 35,
+                      "targetSdkVersion": 35
+                    }
+                  }
+                ],
+                [
+                  "expo-audio",
+                  {
+                    "microphonePermission": "允许声魄录制参考声音。录音保存在本机。"
+                  }
+                ],
+                [
+                  "@qvac/sdk/expo-plugin",
+                  {
+                    "installMissingPrebuilds": true
+                  }
+                ]
+              ]
+            }
+          }
+          EOF
+
+          cat > App.js <<'EOF'
+          import React, { useEffect, useMemo, useRef, useState } from 'react';
+
+          import {
+            ActivityIndicator,
+            Alert,
+            Pressable,
+            SafeAreaView,
+            ScrollView,
+            StyleSheet,
+            Text,
+            TextInput,
+            View
+          } from 'react-native';
+
+          import {
+            createAudioPlayer,
+            requestRecordingPermissionsAsync,
+            setAudioModeAsync,
+            useAudioStream
+          } from 'expo-audio';
+
+          import {
+            Directory,
+            File,
+            FileMode,
+            Paths
+          } from 'expo-file-system';
+
+          import * as Sharing from 'expo-sharing';
+
+          import {
+            cancel,
+            loadModel,
+            setSDKConfig,
+            textToSpeech,
+            unloadModel,
+            TTS_T3_MULTILINGUAL_CHATTERBOX_Q4_0,
+            TTS_S3GEN_MULTILINGUAL_CHATTERBOX_Q4_0,
+            TTS_CANGJIE_ZH_CHATTERBOX
+          } from '@qvac/sdk';
+
+          const SAMPLE_RATE = 24000;
+
+          const REF_TEXT =
+            '今天我用自己平时最自然的声音，读这一小段话。' +
+            '声音里有我的语气、节奏和呼吸，也有我平常说话时自然的停顿。' +
+            'This is my natural speaking voice.';
+
+          const LANG = {
+            auto: '自动识别',
+            zh: '中文',
+            en: 'English',
+            ar: 'العربية'
+          };
+
+          const STYLE = {
+            deep: {
+              name: '深沉克制',
+              speed: 0.88,
+              exaggeration: 0.20,
+              cfgWeight: 0.40
+            },
+            brave: {
+              name: '机智勇敢',
+              speed: 1.08,
+              exaggeration: 0.70,
+              cfgWeight: 0.50
+            },
+            kind: {
+              name: '深情慈悲',
+              speed: 0.92,
+              exaggeration: 0.55,
+              cfgWeight: 0.50
+            },
+            proud: {
+              name: '嚣张跋扈',
+              speed: 0.98,
+              exaggeration: 0.90,
+              cfgWeight: 0.65
+            },
+            elegant: {
+              name: '风流倜傥',
+              speed: 1.05,
+              exaggeration: 0.65,
+              cfgWeight: 0.45
+            },
+            heroic: {
+              name: '雄浑壮烈',
+              speed: 0.88,
+              exaggeration: 1.00,
+              cfgWeight: 0.70
+            }
+          };
+
+          function detectLanguage(text) {
+            let zh = 0;
+            let en = 0;
+            let ar = 0;
+
+            for (const ch of text) {
+              const cp = ch.codePointAt(0);
+
+              if (
+                (cp >= 0x3400 && cp <= 0x4dbf) ||
+                (cp >= 0x4e00 && cp <= 0x9fff)
+              ) {
+                zh++;
+              } else if (
+                (cp >= 0x0600 && cp <= 0x06ff) ||
+                (cp >= 0x0750 && cp <= 0x077f) ||
+                (cp >= 0x08a0 && cp <= 0x08ff) ||
+                (cp >= 0xfb50 && cp <= 0xfdff) ||
+                (cp >= 0xfe70 && cp <= 0xfeff)
+              ) {
+                ar++;
+              } else if (
+                (cp >= 65 && cp <= 90) ||
+                (cp >= 97 && cp <= 122)
+              ) {
+                en++;
+              }
+            }
+
+            const best = Math.max(zh, en, ar);
+
+            if (!best) return 'unsupported';
+            if (ar === best) return 'ar';
+            if (zh === best) return 'zh';
+
+            return 'en';
+          }
+
+          function splitText(text, max = 260) {
+            const cleaned = text.replace(/\r/g, '').trim();
+
+            if (!cleaned) return [];
+
+            const raw =
+              cleaned.match(
+                /[^。！？!?；;\n]+[。！？!?；;\n]?/g
+              ) || [cleaned];
+
+            const out = [];
+            let current = '';
+
+            const flush = () => {
+              const value = current.trim();
+              if (value) out.push(value);
+              current = '';
+            };
+
+            for (let part of raw) {
+              part = part.trim();
+              if (!part) continue;
+
+              if (part.length > max) {
+                flush();
+
+                while (part.length > max) {
+                  let cut = max;
+
+                  for (
+                    let i = max;
+                    i >= Math.floor(max * 0.6);
+                    i--
+                  ) {
+                    if ('：:，,、'.includes(part[i])) {
+                      cut = i + 1;
+                      break;
+                    }
+                  }
+
+                  out.push(part.slice(0, cut).trim());
+                  part = part.slice(cut).trim();
+                }
+
+                if (part) out.push(part);
+              } else if (
+                current.length + part.length <= max
+              ) {
+                current += part;
+              } else {
+                flush();
+                current = part;
+              }
+            }
+
+            flush();
+            return out;
+          }
+
+          function wavHeader(dataLength, sampleRate) {
+            const bytes = new Uint8Array(44);
+            const view = new DataView(bytes.buffer);
+
+            const text = (offset, value) => {
+              for (let i = 0; i < value.length; i++) {
+                bytes[offset + i] = value.charCodeAt(i);
+              }
+            };
+
+            text(0, 'RIFF');
+            view.setUint32(4, 36 + dataLength, true);
+            text(8, 'WAVE');
+            text(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            text(36, 'data');
+            view.setUint32(40, dataLength, true);
+
+            return bytes;
+          }
+
+          function samplesToBytes(samples) {
+            const bytes =
+              new Uint8Array(samples.length * 2);
+
+            const view =
+              new DataView(bytes.buffer);
+
+            for (let i = 0; i < samples.length; i++) {
+              const value = Math.max(
+                -32768,
+                Math.min(
+                  32767,
+                  Math.round(samples[i] || 0)
+                )
+              );
+
+              view.setInt16(i * 2, value, true);
+            }
+
+            return bytes;
+          }
+
+          function localPath(uri) {
+            return decodeURIComponent(
+              uri.replace(/^file:\/\//, '')
+            );
+          }
+
+          function validateReference(chunks, rate) {
+            let count = 0;
+            let sum = 0;
+            let quiet = 0;
+            let clipped = 0;
+            let peak = 0;
+
+            for (const chunk of chunks) {
+              const view = new DataView(
+                chunk.buffer,
+                chunk.byteOffset,
+                chunk.byteLength
+              );
+
+              for (
+                let i = 0;
+                i + 1 < chunk.byteLength;
+                i += 2
+              ) {
+                const v = view.getInt16(i, true);
+                const a = Math.abs(v);
+
+                count++;
+                sum += v * v;
+
+                if (a < 250) quiet++;
+                if (a > 32300) clipped++;
+                if (a > peak) peak = a;
+              }
+            }
+
+            const seconds = count / rate;
+
+            const rms =
+              count
+                ? Math.sqrt(sum / count) / 32768
+                : 0;
+
+            if (seconds < 6) {
+              return {
+                ok: false,
+                message: '参考录音至少需要 6 秒。'
+              };
+            }
+
+            if (seconds > 22) {
+              return {
+                ok: false,
+                message: '参考录音太长，请控制在 8–15 秒左右。'
+              };
+            }
+
+            if (rms < 0.025) {
+              return {
+                ok: false,
+                message: '声音太小或接近静音。'
+              };
+            }
+
+            if (quiet / count > 0.62) {
+              return {
+                ok: false,
+                message: '静音太多，请连续自然朗读。'
+              };
+            }
+
+            if (clipped / count > 0.015) {
+              return {
+                ok: false,
+                message: '爆音过多，请稍微离麦克风远一点。'
+              };
+            }
+
+            if (peak < 2500) {
+              return {
+                ok: false,
+                message: '录音动态范围不足。'
+              };
+            }
+
+            return {
+              ok: true,
+              seconds
+            };
+          }
+
+          export default function App() {
+            const [text, setText] = useState('');
+            const [language, setLanguage] =
+              useState('auto');
+
+            const [styleKey, setStyleKey] =
+              useState('deep');
+
+            const [reference, setReference] =
+              useState(null);
+
+            const [recording, setRecording] =
+              useState(false);
+
+            const [busy, setBusy] =
+              useState(false);
+
+            const [status, setStatus] =
+              useState('请先录制参考声音');
+
+            const [progress, setProgress] =
+              useState(0);
+
+            const [works, setWorks] =
+              useState([]);
+
+            const modelId = useRef(null);
+            const modelKey = useRef(null);
+            const requestId = useRef(null);
+            const cancelling = useRef(false);
+            const player = useRef(null);
+            const recordingChunks = useRef([]);
+            const actualRate = useRef(SAMPLE_RATE);
+
+            const worksDir = useMemo(
+              () =>
+                new Directory(
+                  Paths.document,
+                  'VoiceForgeWorks'
+                ),
+              []
+            );
+
+            const voiceDir = useMemo(
+              () =>
+                new Directory(
+                  Paths.document,
+                  'VoiceForgePrivate'
+                ),
+              []
+            );
+
+            const stream = useAudioStream({
+              sampleRate: SAMPLE_RATE,
+              channels: 1,
+              encoding: 'int16',
+
+              onBuffer: buffer => {
+                actualRate.current =
+                  buffer.sampleRate || SAMPLE_RATE;
+
+                recordingChunks.current.push(
+                  new Uint8Array(
+                    buffer.data.slice(0)
+                  )
+                );
+              }
+            });
+
+            function refreshWorks() {
+              try {
+                if (!worksDir.exists) {
+                  worksDir.create({
+                    intermediates: true,
+                    idempotent: true
+                  });
+                }
+
+                const list =
+                  worksDir
+                    .list()
+                    .filter(
+                      item =>
+                        item instanceof File &&
+                        item.name.endsWith('.wav')
+                    )
+                    .sort(
+                      (a, b) =>
+                        (b.lastModified || 0) -
+                        (a.lastModified || 0)
+                    );
+
+                setWorks(list);
+              } catch (_) {}
+            }
+
+            useEffect(() => {
+              setSDKConfig({
+                registryDownloadMaxRetries: 5,
+                registryStreamTimeoutMs: 180000
+              });
+
+              if (!voiceDir.exists) {
+                voiceDir.create({
+                  intermediates: true,
+                  idempotent: true
+                });
+              }
+
+              if (!worksDir.exists) {
+                worksDir.create({
+                  intermediates: true,
+                  idempotent: true
+                });
+              }
+
+              refreshWorks();
+
+              return () => {
+                cancelling.current = true;
+
+                if (requestId.current) {
+                  cancel({
+                    requestId: requestId.current
+                  }).catch(() => {});
+                }
+
+                try {
+                  player.current?.release?.();
+                } catch (_) {}
+
+                if (modelId.current) {
+                  unloadModel({
+                    modelId: modelId.current
+                  }).catch(() => {});
+                }
+              };
+            }, []);
+
+            async function beginRecording() {
+              const permission =
+                await requestRecordingPermissionsAsync();
+
+              if (!permission.granted) {
+                Alert.alert('需要麦克风权限');
+                return;
+              }
+
+              await setAudioModeAsync({
+                playsInSilentMode: true,
+                allowsRecording: true
+              });
+
+              recordingChunks.current = [];
+
+              await stream.stream.start();
+
+              setRecording(true);
+              setStatus('正在录制参考声音…');
+            }
+
+            async function endRecording() {
+              await stream.stream.stop();
+
+              setRecording(false);
+
+              const check = validateReference(
+                recordingChunks.current,
+                actualRate.current
+              );
+
+              if (!check.ok) {
+                setStatus('录音质量不合格');
+
+                Alert.alert(
+                  '请重新录制',
+                  check.message
+                );
+
+                return;
+              }
+
+              const dataLength =
+                recordingChunks.current.reduce(
+                  (total, item) =>
+                    total + item.byteLength,
+                  0
+                );
+
+              const file = new File(
+                voiceDir,
+                `voice-${Date.now()}.wav`
+              );
+
+              file.create();
+
+              const handle =
+                file.open(FileMode.ReadWrite);
+
+              try {
+                await handle.writeBytes(
+                  wavHeader(
+                    dataLength,
+                    actualRate.current
+                  )
+                );
+
+                for (
+                  const chunk
+                  of recordingChunks.current
+                ) {
+                  await handle.writeBytes(chunk);
+                }
+              } finally {
+                handle.close();
+              }
+
+              setReference(file);
+
+              setStatus(
+                `参考声音已准备 · ${check.seconds.toFixed(1)} 秒`
+              );
+            }
+
+            function getLanguage(value) {
+              if (language !== 'auto') {
+                return language;
+              }
+
+              return detectLanguage(value);
+            }
+
+            async function ensureModel(lang) {
+              if (!reference?.exists) {
+                throw new Error(
+                  '请先录制参考声音'
+                );
+              }
+
+              if (!['zh', 'en', 'ar'].includes(lang)) {
+                throw new Error(
+                  '只支持中文、英文和阿拉伯语'
+                );
+              }
+
+              const style = STYLE[styleKey];
+
+              const key =
+                `${lang}:${styleKey}`;
+
+              if (
+                modelId.current &&
+                modelKey.current === key
+              ) {
+                return modelId.current;
+              }
+
+              if (modelId.current) {
+                await unloadModel({
+                  modelId: modelId.current
+                }).catch(() => {});
+
+                modelId.current = null;
+                modelKey.current = null;
+
+                await new Promise(
+                  resolve =>
+                    setTimeout(resolve, 250)
+                );
+              }
+
+              const config = {
+                ttsEngine: 'chatterbox',
+                language: lang,
+
+                s3genModelSrc:
+                  TTS_S3GEN_MULTILINGUAL_CHATTERBOX_Q4_0,
+
+                referenceAudioSrc:
+                  localPath(reference.uri),
+
+                cfmSteps: 1,
+                threads: 4,
+
+                streamChunkTokens: 25,
+                streamFirstChunkTokens: 10,
+
+                ttsSpeed: style.speed,
+                exaggeration:
+                  style.exaggeration,
+                cfgWeight:
+                  style.cfgWeight,
+
+                ...(lang === 'zh'
+                  ? {
+                      cangjieTsvSrc:
+                        TTS_CANGJIE_ZH_CHATTERBOX
+                    }
+                  : {})
+              };
+
+              const load = useGPU =>
+                loadModel({
+                  modelType: 'tts-ggml',
+
+                  modelSrc:
+                    TTS_T3_MULTILINGUAL_CHATTERBOX_Q4_0,
+
+                  modelConfig: {
+                    ...config,
+                    useGPU
+                  },
+
+                  onProgress: p => {
+                    const n =
+                      Number.isFinite(
+                        p?.percentage
+                      )
+                        ? Math.round(
+                            p.percentage
+                          )
+                        : 0;
+
+                    setProgress(n);
+                    setStatus(
+                      `下载/加载三语模型 ${n}%`
+                    );
+                  }
+                });
+
+              let id;
+
+              try {
+                id = await load(true);
+              } catch (_) {
+                setStatus(
+                  'GPU 不兼容，切换 CPU…'
+                );
+
+                id = await load(false);
+              }
+
+              modelId.current = id;
+              modelKey.current = key;
+
+              return id;
+            }
+
+            async function cancelGeneration() {
+              cancelling.current = true;
+
+              if (requestId.current) {
+                await cancel({
+                  requestId:
+                    requestId.current
+                }).catch(() => {});
+              }
+
+              setStatus('正在取消生成…');
+            }
+
+            function stopPlayback() {
+              try {
+                player.current?.pause?.();
+              } catch (_) {}
+
+              setStatus('播放已停止');
+            }
+
+            function playFile(file) {
+              try {
+                player.current?.release?.();
+              } catch (_) {}
+
+              const p =
+                createAudioPlayer(file.uri);
+
+              player.current = p;
+              p.play();
+
+              setStatus(
+                `正在播放 ${file.name}`
+              );
+            }
+
+            async function generate(preview) {
+              if (busy) return;
+
+              const source = text.trim();
+
+              if (!source) {
+                Alert.alert('请粘贴文字');
+                return;
+              }
+
+              if (!reference?.exists) {
+                Alert.alert(
+                  '请先录制参考声音'
+                );
+                return;
+              }
+
+              setBusy(true);
+              cancelling.current = false;
+              setProgress(0);
+
+              let output = null;
+              let handle = null;
+
+              try {
+                const value =
+                  preview
+                    ? source.slice(0, 220)
+                    : source;
+
+                const chunks =
+                  splitText(value);
+
+                if (!chunks.length) {
+                  throw new Error(
+                    '没有可朗读文字'
+                  );
+                }
+
+                const detected =
+                  getLanguage(value);
+
+                if (
+                  !['zh', 'en', 'ar'].includes(
+                    detected
+                  )
+                ) {
+                  throw new Error(
+                    '当前只支持中、英、阿三种语言'
+                  );
+                }
+
+                output = new File(
+                  worksDir,
+                  `VoiceForge-${Date.now()}.wav`
+                );
+
+                output.create();
+
+                handle =
+                  output.open(
+                    FileMode.ReadWrite
+                  );
+
+                await handle.writeBytes(
+                  new Uint8Array(44)
+                );
+
+                let audioBytes = 0;
+                let outputRate =
+                  SAMPLE_RATE;
+
+                for (
+                  let i = 0;
+                  i < chunks.length;
+                  i++
+                ) {
+                  if (cancelling.current) {
+                    throw new Error(
+                      '__CANCELLED__'
+                    );
+                  }
+
+                  const lang =
+                    language === 'auto'
+                      ? detectLanguage(
+                          chunks[i]
+                        )
+                      : language;
+
+                  if (
+                    !['zh', 'en', 'ar'].includes(
+                      lang
+                    )
+                  ) {
+                    throw new Error(
+                      `第 ${i + 1} 段不是中文、英文或阿拉伯语`
+                    );
+                  }
+
+                  const id =
+                    await ensureModel(lang);
+
+                  setStatus(
+                    `生成第 ${i + 1} 段 / ${chunks.length} · ${LANG[lang]}`
+                  );
+
+                  setProgress(
+                    Math.round(
+                      i /
+                        chunks.length *
+                        100
+                    )
+                  );
+
+                  const run =
+                    textToSpeech({
+                      modelId: id,
+                      text: chunks[i],
+                      inputType: 'text',
+                      stream: true
+                    });
+
+                  requestId.current =
+                    run.requestId;
+
+                  const rate =
+                    await run.sampleRate;
+
+                  if (rate) {
+                    outputRate = rate;
+                  }
+
+                  for await (
+                    const samples
+                    of run.bufferStream
+                  ) {
+                    if (
+                      cancelling.current
+                    ) {
+                      await cancel({
+                        requestId:
+                          run.requestId
+                      }).catch(() => {});
+
+                      throw new Error(
+                        '__CANCELLED__'
+                      );
+                    }
+
+                    const bytes =
+                      samplesToBytes(samples);
+
+                    await handle.writeBytes(
+                      bytes
+                    );
+
+                    audioBytes +=
+                      bytes.byteLength;
+                  }
+
+                  requestId.current = null;
+                }
+
+                handle.offset = 0;
+
+                await handle.writeBytes(
+                  wavHeader(
+                    audioBytes,
+                    outputRate
+                  )
+                );
+
+                handle.close();
+                handle = null;
+
+                setProgress(100);
+                setStatus('生成完成');
+
+                refreshWorks();
+                playFile(output);
+              } catch (error) {
+                try {
+                  handle?.close?.();
+                } catch (_) {}
+
+                if (output?.exists) {
+                  try {
+                    await output.delete();
+                  } catch (_) {}
+                }
+
+                if (
+                  String(
+                    error?.message || error
+                  ).includes(
+                    '__CANCELLED__'
+                  )
+                ) {
+                  setStatus(
+                    '生成已取消，原有作品未受影响'
+                  );
+                } else {
+                  setStatus('生成失败');
+
+                  Alert.alert(
+                    '生成失败',
+                    String(
+                      error?.message || error
+                    )
+                  );
+                }
+              } finally {
+                requestId.current = null;
+                setBusy(false);
+                refreshWorks();
+              }
+            }
+
+            async function saveFile(file) {
+              try {
+                const dir =
+                  await Directory.pickDirectoryAsync();
+
+                if (!dir) return;
+
+                const target =
+                  new File(
+                    dir,
+                    file.name
+                  );
+
+                if (target.exists) {
+                  await target.delete();
+                }
+
+                await file.copy(target);
+
+                Alert.alert(
+                  '保存成功',
+                  file.name
+                );
+              } catch (error) {
+                Alert.alert(
+                  '保存失败',
+                  String(
+                    error?.message || error
+                  )
+                );
+              }
+            }
+
+            async function shareFile(file) {
+              if (
+                await Sharing.isAvailableAsync()
+              ) {
+                await Sharing.shareAsync(
+                  file.uri,
+                  {
+                    mimeType: 'audio/wav'
+                  }
+                );
+              }
+            }
+
+            return (
+              <SafeAreaView style={s.root}>
+                <ScrollView
+                  contentContainerStyle={s.page}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <Text style={s.title}>
+                    声魄 · VoiceForge
+                  </Text>
+
+                  <Text style={s.version}>
+                    v0.4 · 中文 / English / العربية
+                  </Text>
+
+                  <View style={s.card}>
+                    <Text style={s.h}>
+                      ① 我的音色
+                    </Text>
+
+                    <Text style={s.desc}>
+                      用同一个参考音色朗读中、英、阿三种语言。
+                    </Text>
+
+                    <Text style={s.prompt}>
+                      {REF_TEXT}
+                    </Text>
+
+                    <Pressable
+                      style={s.main}
+                      onPress={
+                        recording
+                          ? endRecording
+                          : beginRecording
+                      }
+                    >
+                      <Text style={s.buttonText}>
+                        {recording
+                          ? '■ 停止并检查录音'
+                          : '● 开始录音'}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={s.card}>
+                    <Text style={s.h}>
+                      ② 语言
+                    </Text>
+
+                    <View style={s.row}>
+                      {Object.entries(LANG).map(
+                        ([key, value]) => (
+                          <Pressable
+                            key={key}
+                            onPress={() =>
+                              setLanguage(key)
+                            }
+                            style={[
+                              s.choice,
+                              language === key &&
+                                s.active
+                            ]}
+                          >
+                            <Text
+                              style={s.buttonText}
+                            >
+                              {value}
+                            </Text>
+                          </Pressable>
+                        )
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={s.card}>
+                    <Text style={s.h}>
+                      ③ 六种演绎
+                    </Text>
+
+                    <View style={s.row}>
+                      {Object.entries(STYLE).map(
+                        ([key, item]) => (
+                          <Pressable
+                            key={key}
+                            onPress={() =>
+                              setStyleKey(key)
+                            }
+                            style={[
+                              s.choice,
+                              styleKey === key &&
+                                s.active
+                            ]}
+                          >
+                            <Text
+                              style={s.buttonText}
+                            >
+                              {item.name}
+                            </Text>
+                          </Pressable>
+                        )
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={s.card}>
+                    <Text style={s.h}>
+                      ④ 粘贴文字
+                    </Text>
+
+                    <TextInput
+                      multiline
+                      value={text}
+                      onChangeText={setText}
+                      style={[
+                        s.input,
+                        getLanguage(text) ===
+                          'ar' && {
+                          textAlign: 'right'
+                        }
+                      ]}
+                      placeholder="中文 / English / العربية"
+                      placeholderTextColor="#777"
+                    />
+
+                    <View style={s.row}>
+                      <Pressable
+                        style={s.button}
+                        onPress={() =>
+                          generate(true)
+                        }
+                      >
+                        <Text style={s.buttonText}>
+                          试听
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={s.main}
+                        onPress={() =>
+                          generate(false)
+                        }
+                      >
+                        <Text style={s.buttonText}>
+                          生成全文
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={s.cancel}
+                        onPress={
+                          cancelGeneration
+                        }
+                      >
+                        <Text style={s.buttonText}>
+                          取消生成
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={s.button}
+                        onPress={stopPlayback}
+                      >
+                        <Text style={s.buttonText}>
+                          停止播放
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    {busy && (
+                      <ActivityIndicator
+                        size="large"
+                        color="#d8b77a"
+                      />
+                    )}
+
+                    <Text style={s.status}>
+                      {status}
+                    </Text>
+
+                    <Text style={s.progress}>
+                      {progress}%
+                    </Text>
+                  </View>
+
+                  <View style={s.card}>
+                    <Text style={s.h}>
+                      ⑤ 作品历史
+                    </Text>
+
+                    {works.length === 0 ? (
+                      <Text style={s.desc}>
+                        暂无作品
+                      </Text>
+                    ) : (
+                      works.map(file => (
+                        <View
+                          key={file.uri}
+                          style={s.work}
+                        >
+                          <Text
+                            style={s.workName}
+                            numberOfLines={1}
+                          >
+                            {file.name}
+                          </Text>
+
+                          <View style={s.row}>
+                            <Pressable
+                              style={s.small}
+                              onPress={() =>
+                                playFile(file)
+                              }
+                            >
+                              <Text
+                                style={s.buttonText}
+                              >
+                                播放
+                              </Text>
+                            </Pressable>
+
+                            <Pressable
+                              style={s.small}
+                              onPress={() =>
+                                saveFile(file)
+                              }
+                            >
+                              <Text
+                                style={s.buttonText}
+                              >
+                                保存
+                              </Text>
+                            </Pressable>
+
+                            <Pressable
+                              style={s.small}
+                              onPress={() =>
+                                shareFile(file)
+                              }
+                            >
+                              <Text
+                                style={s.buttonText}
+                              >
+                                分享
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      ))
+                    )}
+                  </View>
+
+                  <Text style={s.privacy}>
+                    首次需要联网下载三语模型。之后可以本地运行。参考录音、文字和 WAV 不上传；Android 系统备份关闭。
+                  </Text>
+                </ScrollView>
+              </SafeAreaView>
+            );
+          }
+
+          const s = StyleSheet.create({
+            root: {
+              flex: 1,
+              backgroundColor: '#0b0b0c'
+            },
+
+            page: {
+              padding: 16,
+              paddingBottom: 60
+            },
+
+            title: {
+              color: '#f4eee5',
+              fontSize: 27,
+              fontWeight: '800'
+            },
+
+            version: {
+              color: '#c6a66d',
+              marginTop: 4,
+              marginBottom: 14
+            },
+
+            card: {
+              backgroundColor: '#161618',
+              borderWidth: 1,
+              borderColor: '#302d29',
+              borderRadius: 17,
+              padding: 15,
+              marginBottom: 13
+            },
+
+            h: {
+              color: '#f1ebe2',
+              fontSize: 18,
+              fontWeight: '700'
+            },
+
+            desc: {
+              color: '#aaa39a',
+              fontSize: 12,
+              marginTop: 7,
+              lineHeight: 18
+            },
+
+            prompt: {
+              color: '#ddceb5',
+              backgroundColor: '#0e0e10',
+              padding: 12,
+              borderRadius: 12,
+              marginVertical: 11,
+              lineHeight: 20
+            },
+
+            input: {
+              color: '#f4eee5',
+              minHeight: 220,
+              marginTop: 10,
+              padding: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: '#33302d',
+              backgroundColor: '#0e0e10',
+              textAlignVertical: 'top'
+            },
+
+            row: {
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginTop: 11
+            },
+
+            choice: {
+              borderWidth: 1,
+              borderColor: '#3c3935',
+              borderRadius: 11,
+              paddingVertical: 9,
+              paddingHorizontal: 12
+            },
+
+            active: {
+              borderColor: '#c19c60',
+              backgroundColor: '#4c3922'
+            },
+
+            main: {
+              backgroundColor: '#992825',
+              borderRadius: 11,
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              marginTop: 10,
+              alignSelf: 'flex-start'
+            },
+
+            button: {
+              backgroundColor: '#29292b',
+              borderRadius: 11,
+              paddingVertical: 10,
+              paddingHorizontal: 13
+            },
+
+            cancel: {
+              backgroundColor: '#60211f',
+              borderRadius: 11,
+              paddingVertical: 10,
+              paddingHorizontal: 13
+            },
+
+            small: {
+              backgroundColor: '#29292b',
+              borderRadius: 9,
+              paddingVertical: 7,
+              paddingHorizontal: 10
+            },
+
+            buttonText: {
+              color: '#f3ece3',
+              fontWeight: '700'
+            },
+
+            status: {
+              color: '#d2b77e',
+              marginTop: 12
+            },
+
+            progress: {
+              color: '#d8b77a',
+              fontWeight: '800',
+              textAlign: 'center',
+              marginTop: 7
+            },
+
+            work: {
+              borderTopWidth: 1,
+              borderTopColor: '#2d2a27',
+              marginTop: 10,
+              paddingTop: 10
+            },
+
+            workName: {
+              color: '#e7dfd5',
+              fontSize: 12
+            },
+
+            privacy: {
+              color: '#807970',
+              fontSize: 11,
+              lineHeight: 18
+            }
+          });
+          EOF
+
+      - name: Prebuild Android
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd voiceforge-v04
+
+          CI=1 npx expo prebuild \
+            --platform android \
+            --clean
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
+          s = p.read_text()
+
+          if 'android:allowBackup=' in s:
+              s = re.sub(
+                  r'android:allowBackup="[^"]*"',
+                  'android:allowBackup="false"',
+                  s
+              )
+          else:
+              s = s.replace(
+                  '<application',
+                  '<application android:allowBackup="false"',
+                  1
+              )
+
+          p.write_text(s)
+          PY
+
+      - name: Verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd voiceforge-v04
+
+          grep -q \
+            'TTS_T3_MULTILINGUAL_CHATTERBOX_Q4_0' \
+            App.js
+
+          grep -q \
+            'TTS_S3GEN_MULTILINGUAL_CHATTERBOX_Q4_0' \
+            App.js
+
+          grep -q \
+            'TTS_CANGJIE_ZH_CHATTERBOX' \
+            App.js
+
+          grep -q \
+            'referenceAudioSrc' \
+            App.js
+
+          grep -q \
+            'bufferStream' \
+            App.js
+
+          grep -q \
+            'allowBackup="false"' \
+            android/app/src/main/AndroidManifest.xml
+
+          test -x \
+            node_modules/bare-pack/bin.js
+
+      - name: Build Android APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd voiceforge-v04/android
+
+          chmod +x gradlew
+
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK=voiceforge-v04/android/app/build/outputs/apk/debug/app-debug.apk
+
+          test -s "$APK"
+
+          unzip -t "$APK" >/dev/null
+
+          unzip -l "$APK" \
+            | grep -q 'lib/arm64-v8a/'
+
+          mkdir -p dist
+
+          cp \
+            "$APK" \
+            dist/VoiceForge-v0.4-TRILINGUAL.apk
+
+          sha256sum \
+            dist/VoiceForge-v0.4-TRILINGUAL.apk \
+            | tee dist/SHA256.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceForge-v0.4-TRILINGUAL-APK
+          path: |
+            dist/VoiceForge-v0.4-TRILINGUAL.apk
+            dist/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
