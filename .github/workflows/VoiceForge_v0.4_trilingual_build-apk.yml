@@ -45,25 +45,8 @@ jobs:
           npm install -D --save-exact bare-pack@2.2.2
 
           chmod +x node_modules/bare-pack/bin.js
-          python3 - <<'PY'
-from pathlib import Path
 
-p = Path("node_modules/@qvac/sdk/dist/src/commands/bundle/bare-pack.js")
-s = p.read_text()
-
-s = s.replace(
-    "const command = isWindows ? execPath : barePackBin",
-    "const command = execPath"
-)
-
-s = s.replace(
-    "const spawnArgs = isWindows ? [barePackBin, ...args] : args",
-    "const spawnArgs = [barePackBin, ...args]"
-)
-
-p.write_text(s)
-print("Patched QVAC bare-pack launcher to use Node explicitly")
-PY
+          python3 -c 'from pathlib import Path; p=Path("node_modules/@qvac/sdk/dist/src/commands/bundle/bare-pack.js"); s=p.read_text(); s=s.replace("const command = isWindows ? execPath : barePackBin","const command = execPath").replace("const spawnArgs = isWindows ? [barePackBin, ...args] : args","const spawnArgs = [barePackBin, ...args]"); p.write_text(s); print("QVAC bare-pack patched")'
 
           cat > qvac.config.json <<'EOF'
           {
@@ -272,6 +255,7 @@ PY
 
             for (let part of raw) {
               part = part.trim();
+
               if (!part) continue;
 
               if (part.length > max) {
@@ -307,6 +291,7 @@ PY
             }
 
             flush();
+
             return out;
           }
 
@@ -314,16 +299,16 @@ PY
             const bytes = new Uint8Array(44);
             const view = new DataView(bytes.buffer);
 
-            const text = (offset, value) => {
+            const writeText = (offset, value) => {
               for (let i = 0; i < value.length; i++) {
                 bytes[offset + i] = value.charCodeAt(i);
               }
             };
 
-            text(0, 'RIFF');
+            writeText(0, 'RIFF');
             view.setUint32(4, 36 + dataLength, true);
-            text(8, 'WAVE');
-            text(12, 'fmt ');
+            writeText(8, 'WAVE');
+            writeText(12, 'fmt ');
             view.setUint32(16, 16, true);
             view.setUint16(20, 1, true);
             view.setUint16(22, 1, true);
@@ -331,7 +316,7 @@ PY
             view.setUint32(28, sampleRate * 2, true);
             view.setUint16(32, 2, true);
             view.setUint16(34, 16, true);
-            text(36, 'data');
+            writeText(36, 'data');
             view.setUint32(40, dataLength, true);
 
             return bytes;
@@ -396,12 +381,17 @@ PY
               }
             }
 
+            if (!count) {
+              return {
+                ok: false,
+                message: '没有检测到录音。'
+              };
+            }
+
             const seconds = count / rate;
 
             const rms =
-              count
-                ? Math.sqrt(sum / count) / 32768
-                : 0;
+              Math.sqrt(sum / count) / 32768;
 
             if (seconds < 6) {
               return {
@@ -613,7 +603,9 @@ PY
             }
 
             async function endRecording() {
-              await stream.stream.stop();
+              try {
+                await stream.stream.stop();
+              } catch (_) {}
 
               setRecording(false);
 
@@ -775,6 +767,7 @@ PY
                         : 0;
 
                     setProgress(n);
+
                     setStatus(
                       `下载/加载三语模型 ${n}%`
                     );
@@ -1230,6 +1223,7 @@ PY
                         onPress={() =>
                           generate(true)
                         }
+                        disabled={busy}
                       >
                         <Text style={s.buttonText}>
                           试听
@@ -1241,6 +1235,7 @@ PY
                         onPress={() =>
                           generate(false)
                         }
+                        disabled={busy}
                       >
                         <Text style={s.buttonText}>
                           生成全文
@@ -1252,6 +1247,7 @@ PY
                         onPress={
                           cancelGeneration
                         }
+                        disabled={!busy}
                       >
                         <Text style={s.buttonText}>
                           取消生成
@@ -1523,31 +1519,7 @@ PY
             --platform android \
             --clean
 
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path(
-              "android/app/src/main/AndroidManifest.xml"
-          )
-
-          s = p.read_text()
-
-          if 'android:allowBackup=' in s:
-              s = re.sub(
-                  r'android:allowBackup="[^"]*"',
-                  'android:allowBackup="false"',
-                  s
-              )
-          else:
-              s = s.replace(
-                  '<application',
-                  '<application android:allowBackup="false"',
-                  1
-              )
-
-          p.write_text(s)
-          PY
+          python3 -c 'from pathlib import Path; import re; p=Path("android/app/src/main/AndroidManifest.xml"); s=p.read_text(); s=re.sub(r"android:allowBackup=\"[^\"]*\"","android:allowBackup=\"false\"",s) if "android:allowBackup=" in s else s.replace("<application","<application android:allowBackup=\"false\"",1); p.write_text(s)'
 
       - name: Verify source
         shell: bash
