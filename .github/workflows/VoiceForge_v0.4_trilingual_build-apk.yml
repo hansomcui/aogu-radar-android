@@ -45,6 +45,25 @@ jobs:
           npm install -D --save-exact bare-pack@2.2.2
 
           chmod +x node_modules/bare-pack/bin.js
+          python3 - <<'PY'
+from pathlib import Path
+
+p = Path("node_modules/@qvac/sdk/dist/src/commands/bundle/bare-pack.js")
+s = p.read_text()
+
+s = s.replace(
+    "const command = isWindows ? execPath : barePackBin",
+    "const command = execPath"
+)
+
+s = s.replace(
+    "const spawnArgs = isWindows ? [barePackBin, ...args] : args",
+    "const spawnArgs = [barePackBin, ...args]"
+)
+
+p.write_text(s)
+print("Patched QVAC bare-pack launcher to use Node explicitly")
+PY
 
           cat > qvac.config.json <<'EOF'
           {
