@@ -1,4 +1,4 @@
-name: Build VoiceForge v0.3.5.7 Denoise APK
+name: Build VoiceForge v0.3.5.8 Background Memory APK
 
 
 on:
@@ -6,7 +6,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/VoiceForge_v0.3.5.7_denoise_build-apk.yml"
+      - ".github/workflows/VoiceForge_v0.3.5.8_bg-memory_build-apk.yml"
 
 
 permissions:
@@ -75,8 +75,8 @@ jobs:
                   applicationId "com.hansom.voiceforge"
                   minSdk 29
                   targetSdk 34
-                  versionCode 42
-                  versionName "0.3.5.7"
+                  versionCode 43
+                  versionName "0.3.5.8"
                   ndk {
                       abiFilters "arm64-v8a"
                   }
@@ -238,6 +238,24 @@ jobs:
               private var tts: OfflineTts? = null
 
               @Volatile private var engineReady = false
+              @Volatile private var appVisible = true
+              @Volatile private var engineUnloaded = false
+              private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+              private val unloadEngineRunnable = Runnable {
+                  if (appVisible || shuttingDown) return@Runnable
+                  runCatching {
+                      executor.execute {
+                          if (!appVisible && !shuttingDown && tts != null) {
+                              val engine = tts
+                              tts = null
+                              engineReady = false
+                              engineUnloaded = true
+                              engineState = "已在后台释放模型内存，回到前台会自动重新加载"
+                              runCatching { engine?.release() }
+                          }
+                      }
+                  }
+              }
               @Volatile private var engineState = "首次启动：正在准备本地模型"
               @Volatile private var currentGenerated: File? = null
               @Volatile private var generationInProgress = false
@@ -347,7 +365,9 @@ jobs:
                       val list = am.getHistoricalProcessExitReasons(packageName, 0, 3)
                       val lastShown = prefs.getLong("diag_last_shown_exit_ts", 0L)
                       val e = list.firstOrNull()
-                      if (e != null && e.timestamp > lastShown && e.reason != 10 && e.reason != 11 && e.reason != 16 && e.reason != 1) {
+                      val backgroundCleanup = e != null && e.importance >= 400 && e.reason != 4 && e.reason != 5 && e.reason != 6 && e.reason != 7
+                      if (e != null && backgroundCleanup && e.timestamp > lastShown) prefs.edit().putLong("diag_last_shown_exit_ts", e.timestamp).apply()
+                      if (e != null && !backgroundCleanup && e.timestamp > lastShown && e.reason != 10 && e.reason != 11 && e.reason != 16 && e.reason != 1) {
                           latestTs = e.timestamp
                           sb.append("【上次退出原因】").append(exitReasonName(e.reason)).append('\n')
                           sb.append("time=").append(Date(e.timestamp)).append(" status=").append(e.status)
@@ -368,7 +388,7 @@ jobs:
                   if (javaCrashFile.isFile) { sb.append("\n【Java 崩溃】\n").append(javaCrashFile.readText().take(4000)).append('\n') }
                   if (sb.isEmpty()) return
                   if (breadcrumbFile.isFile) sb.append("\n【崩溃前最后一次生成】\n").append(breadcrumbFile.readText().take(2000))
-                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.7\n" + sb.toString()
+                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.8\n" + sb.toString()
                   runCatching { File(diagDir, "last_report.txt").writeText(report) }
                   val tv = android.widget.TextView(this).apply {
                       text = report; setTextIsSelectable(true); textSize = 12f; setPadding(32, 24, 32, 24)
@@ -1868,7 +1888,29 @@ jobs:
                   out.write((v shr 16) and 0xff); out.write((v shr 24) and 0xff)
               }
 
+              override fun onStart() {
+                  super.onStart()
+                  appVisible = true
+                  mainHandler.removeCallbacks(unloadEngineRunnable)
+                  if (!shuttingDown) runCatching {
+                      executor.execute {
+                          if (engineUnloaded && tts == null && !shuttingDown) {
+                              engineUnloaded = false
+                              prepareEngine()
+                          }
+                      }
+                  }
+              }
+
+              override fun onStop() {
+                  super.onStop()
+                  appVisible = false
+                  mainHandler.removeCallbacks(unloadEngineRunnable)
+                  if (!shuttingDown && !isChangingConfigurations) mainHandler.postDelayed(unloadEngineRunnable, 30_000L)
+              }
+
               override fun onDestroy() {
+                  mainHandler.removeCallbacks(unloadEngineRunnable)
                   shuttingDown = true
                   generationCancel.set(true)
                   stopRecorder()
@@ -1917,7 +1959,7 @@ jobs:
           </head>
           <body>
           <div class="app">
-            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.7</small></div></div>
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.8</small></div></div>
 
             <section id="home" class="screen active">
               <div class="hero"><h1>任何参考音色，<br>都留在你的手机里。</h1><p>不用 API，不用电脑。录制自己的声音，或导入你指定的音频（WAV/MP3/MP4）和对应原文，再用当前选中的音色离线朗读。</p></div>
@@ -2319,6 +2361,8 @@ jobs:
           grep -q 'denoise/dpdfnet2_48khz_hr.onnx' app/src/main/java/com/hansom/voiceforge/MainActivity.kt
           grep -q 'id="impDenoise"' app/src/main/assets/index.html
           grep -q 'Android.importVoice(name,text,dn)' app/src/main/assets/index.html
+          grep -q 'unloadEngineRunnable' app/src/main/java/com/hansom/voiceforge/MainActivity.kt
+          grep -q 'backgroundCleanup' app/src/main/java/com/hansom/voiceforge/MainActivity.kt
 
 
       - name: Build offline APK
@@ -2342,17 +2386,17 @@ jobs:
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           unzip -l "$APK" | grep -q 'assets/denoise/dpdfnet2_48khz_hr.onnx'
           mkdir -p dist
-          cp "$APK" dist/VoiceForge-v0.3.5.7-DENOISE.apk
-          sha256sum dist/VoiceForge-v0.3.5.7-DENOISE.apk | tee dist/SHA256.txt
-          ls -lh dist/VoiceForge-v0.3.5.7-DENOISE.apk
+          cp "$APK" dist/VoiceForge-v0.3.5.8-BG-MEMORY.apk
+          sha256sum dist/VoiceForge-v0.3.5.8-BG-MEMORY.apk | tee dist/SHA256.txt
+          ls -lh dist/VoiceForge-v0.3.5.8-BG-MEMORY.apk
 
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceForge-v0.3.5.7-DENOISE-APK
+          name: VoiceForge-v0.3.5.8-BG-MEMORY-APK
           path: |
-            dist/VoiceForge-v0.3.5.7-DENOISE.apk
+            dist/VoiceForge-v0.3.5.8-BG-MEMORY.apk
             dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
@@ -2364,10 +2408,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=voiceforge-v0.3.5.7
-          cp dist/VoiceForge-v0.3.5.7-DENOISE.apk dist/VoiceForge-v0.3.5.7.apk
+          TAG=voiceforge-v0.3.5.8
+          cp dist/VoiceForge-v0.3.5.8-BG-MEMORY.apk dist/VoiceForge-v0.3.5.8.apk
           gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" dist/VoiceForge-v0.3.5.7.apk -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "声魄 VoiceForge v0.3.5.7" \
-            --notes "离线中英文声音克隆。v0.3.5.7：导入音色时可选「降噪」（DPDFNet 48kHz 离线降噪）。构建 run ${GITHUB_RUN_ID}。"
+          gh release create "$TAG" dist/VoiceForge-v0.3.5.8.apk -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "声魄 VoiceForge v0.3.5.8" \
+            --notes "离线中英文声音克隆。v0.3.5.8：退到后台30秒后释放模型内存、回到前台自动重新加载；系统正常清理后台不再弹诊断报告。构建 run ${GITHUB_RUN_ID}。"
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[]|.name+" "+(.size|tostring)'
