@@ -1,4 +1,4 @@
-name: Build VoiceForge v0.3.5.2 Crash Diagnostics APK
+name: Build VoiceForge v0.3.5.3 Reference Guard APK
 
 
 on:
@@ -6,7 +6,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/VoiceForge_v0.3.5.2_crash-diag_build-apk.yml"
+      - ".github/workflows/VoiceForge_v0.3.5.3_ref-guard_build-apk.yml"
 
 
 permissions:
@@ -75,8 +75,8 @@ jobs:
                   applicationId "com.hansom.voiceforge"
                   minSdk 29
                   targetSdk 34
-                  versionCode 37
-                  versionName "0.3.5.2"
+                  versionCode 38
+                  versionName "0.3.5.3"
                   ndk {
                       abiFilters "arm64-v8a"
                   }
@@ -361,7 +361,7 @@ jobs:
                   if (javaCrashFile.isFile) { sb.append("\n【Java 崩溃】\n").append(javaCrashFile.readText().take(4000)).append('\n') }
                   if (sb.isEmpty()) return
                   if (breadcrumbFile.isFile) sb.append("\n【崩溃前最后一次生成】\n").append(breadcrumbFile.readText().take(2000))
-                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.2\n" + sb.toString()
+                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.3\n" + sb.toString()
                   runCatching { File(diagDir, "last_report.txt").writeText(report) }
                   val tv = android.widget.TextView(this).apply {
                       text = report; setTextIsSelectable(true); textSize = 12f; setPadding(32, 24, 32, 24)
@@ -711,9 +711,37 @@ jobs:
                   }
               }
           
+              // v0.3.5.3: ZipVoice 推理内存随参考音频长度急剧增长，且参考原文与音频不符时更严重。
+              // 三星实测（v0.3.5.2 诊断报告）：参考 65.2 秒 + 原文 2 字 → 推理中被系统 SIGKILL。
+              // 在调用原生推理前拦截，给出可操作的提示，而不是让进程被杀。
+              private val maxReferenceSeconds = 20.0
+              private val minReferenceSeconds = 3.0
+              private val minReferenceUnitsPerSecond = 1.5
+
+              private fun referenceTextUnits(text: String): Int {
+                  val han = Regex("[\\u4e00-\\u9fff]").findAll(text).count()
+                  val words = Regex("[A-Za-z]+").findAll(text).count()
+                  return han + (words * 3 + 1) / 2
+              }
+
+              private fun referenceProblem(seconds: Double, referenceText: String): String? {
+                  val units = referenceTextUnits(referenceText)
+                  return when {
+                      seconds > maxReferenceSeconds ->
+                          "参考音频 ${String.format(Locale.US, "%.1f", seconds)} 秒，太长（上限 ${maxReferenceSeconds.toInt()} 秒），本机内存不足以完成推理。请剪成 8–20 秒的一段，并填写这一段的完整原文后重新导入。"
+                      seconds < minReferenceSeconds ->
+                          "参考音频只有 ${String.format(Locale.US, "%.1f", seconds)} 秒，太短。请使用 8–20 秒的参考音频。"
+                      units < seconds * minReferenceUnitsPerSecond ->
+                          "参考原文与音频不符：音频 ${String.format(Locale.US, "%.1f", seconds)} 秒，原文只有 $units 个字。请填写音频里完整说出的原文后重新导入。"
+                      else -> null
+                  }
+              }
+
               private fun synthesizeOffline(raw: String, style: String, intensity: Int, preview: Boolean, voice: VoiceProfile) {
                   val localTts = tts ?: error("本地模型尚未加载完成")
                   val ref = readOwnWav(voiceFile(voice))
+                  val refSeconds = ref.samples.size.toDouble() / ref.sampleRate.coerceAtLeast(1)
+                  referenceProblem(refSeconds, voice.referenceText)?.let { error("音色「${voice.name}」无法使用：$it") }
                   val cfg = styleFor(style, intensity)
                   var source = if (preview) previewText(raw) else raw
                   source = transformText(source, style, intensity)
@@ -979,7 +1007,7 @@ jobs:
                                       raw.write((v shr 8) and 0xff)
                                   }
                                   totalSamples += n
-                                  if (totalSamples >= SAMPLE_RATE * 30L) {
+                                  if (totalSamples >= SAMPLE_RATE * 20L) {
                                       recording.set(false)
                                       runOnUiThread { runCatching { ar.stop() } }
                                   }
@@ -1019,7 +1047,7 @@ jobs:
                   val sampleCount = pcm.size / 2
                   val seconds = sampleCount.toDouble() / sampleRate
                   if (seconds < 7.0) return RecordingQuality(false, "录音太短。请完整读完参考句，建议 8–20 秒。", seconds, -99.0, 0.0, 100.0, 0.0)
-                  if (seconds > 30.5) return RecordingQuality(false, "录音太长，请控制在 30 秒以内。", seconds, -99.0, 0.0, 100.0, 0.0)
+                  if (seconds > 20.5) return RecordingQuality(false, "录音太长，请控制在 20 秒以内。", seconds, -99.0, 0.0, 100.0, 0.0)
           
                   var sumSq = 0.0
                   var peak = 0
@@ -1354,6 +1382,8 @@ jobs:
                               } catch (e: Throwable) {
                                   throw IllegalArgumentException("不是可用的 WAV（需单声道 PCM16）：" + (e.message ?: e.javaClass.simpleName))
                               }
+                              val importSeconds = info.dataSize.toDouble() / 2.0 / info.sampleRate.coerceAtLeast(1)
+                              referenceProblem(importSeconds, rt)?.let { throw IllegalArgumentException(it) }
                               val profiles = loadVoiceProfiles(); profiles += VoiceProfile(id, n, rt, fileName); saveVoiceProfiles(profiles)
                               prefs.edit().putString("active_voice_id", id).apply()
                               js("window.onVoiceLibraryChanged&&window.onVoiceLibraryChanged()")
@@ -1687,7 +1717,7 @@ jobs:
           </head>
           <body>
           <div class="app">
-            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.2 诊断版</small></div></div>
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.3</small></div></div>
           
             <section id="home" class="screen active">
               <div class="hero"><h1>任何参考音色，<br>都留在你的手机里。</h1><p>不用 API，不用电脑。录制自己的声音，或导入你指定的 WAV 和对应原文，再用当前选中的音色离线朗读。</p></div>
@@ -2077,17 +2107,17 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/zipvoice/vocos_24khz.onnx'
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           mkdir -p dist
-          cp "$APK" dist/VoiceForge-v0.3.5.2-CRASH-DIAG.apk
-          sha256sum dist/VoiceForge-v0.3.5.2-CRASH-DIAG.apk | tee dist/SHA256.txt
-          ls -lh dist/VoiceForge-v0.3.5.2-CRASH-DIAG.apk
+          cp "$APK" dist/VoiceForge-v0.3.5.3-REF-GUARD.apk
+          sha256sum dist/VoiceForge-v0.3.5.3-REF-GUARD.apk | tee dist/SHA256.txt
+          ls -lh dist/VoiceForge-v0.3.5.3-REF-GUARD.apk
 
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceForge-v0.3.5.2-CRASH-DIAG-APK
+          name: VoiceForge-v0.3.5.3-REF-GUARD-APK
           path: |
-            dist/VoiceForge-v0.3.5.2-CRASH-DIAG.apk
+            dist/VoiceForge-v0.3.5.3-REF-GUARD.apk
             dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
