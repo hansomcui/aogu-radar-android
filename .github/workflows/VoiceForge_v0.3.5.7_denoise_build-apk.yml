@@ -1,4 +1,4 @@
-name: Build VoiceForge v0.3.5.6 Import Dialog APK
+name: Build VoiceForge v0.3.5.7 Denoise APK
 
 
 on:
@@ -6,11 +6,11 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/VoiceForge_v0.3.5.6_import-dialog_build-apk.yml"
+      - ".github/workflows/VoiceForge_v0.3.5.7_denoise_build-apk.yml"
 
 
 permissions:
-  contents: read
+  contents: write
 
 
 jobs:
@@ -75,8 +75,8 @@ jobs:
                   applicationId "com.hansom.voiceforge"
                   minSdk 29
                   targetSdk 34
-                  versionCode 41
-                  versionName "0.3.5.6"
+                  versionCode 42
+                  versionName "0.3.5.7"
                   ndk {
                       abiFilters "arm64-v8a"
                   }
@@ -146,7 +146,7 @@ jobs:
 
           cat > app/src/main/java/com/hansom/voiceforge/MainActivity.kt <<'EOF_KT'
           package com.hansom.voiceforge
-          
+
           import android.Manifest
           import android.annotation.SuppressLint
           import android.app.Activity
@@ -170,6 +170,10 @@ jobs:
           import android.webkit.WebViewClient
           import android.widget.Toast
           import com.k2fsa.sherpa.onnx.GenerationConfig
+          import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiser
+          import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserConfig
+          import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserDpdfNetModelConfig
+          import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserModelConfig
           import com.k2fsa.sherpa.onnx.OfflineTts
           import com.k2fsa.sherpa.onnx.OfflineTtsConfig
           import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
@@ -201,7 +205,7 @@ jobs:
           import kotlin.math.tanh
           import kotlin.math.log10
           import kotlin.math.sqrt
-          
+
           class MainActivity : Activity() {
               companion object {
                   private const val REQ_MIC = 500
@@ -211,14 +215,16 @@ jobs:
                   private const val SAMPLE_RATE = 24000
                   private const val MODEL_ASSET_DIR = "zipvoice"
                   private const val MODEL_VERSION = "zipvoice-int8-zh-en-v1"
+                  private const val DENOISE_MODEL_ASSET = "denoise/dpdfnet2_48khz_hr.onnx"
+                  private const val DENOISE_ATTENUATION_LIMIT_DB = 20f
                   private const val LEGACY_REF_FILE = "my_voice_reference.wav"
                   private const val PENDING_REF_FILE = "pending_voice_reference.wav"
-          
+
                   // The user should read this exact sentence while recording.
                   private const val REFERENCE_TEXT =
                       "今天我用自己平时最自然的声音，读这一小段话。声音里有我的语气、节奏和呼吸，也有我平常说话时自然的停顿。以后无论读什么文字，都请保持是我的声音。"
               }
-          
+
               private lateinit var webView: WebView
               private val executor = Executors.newSingleThreadExecutor()
               private val recording = AtomicBoolean(false)
@@ -230,7 +236,7 @@ jobs:
               @Volatile private var generationFuture: Future<*>? = null
               @Volatile private var shuttingDown = false
               private var tts: OfflineTts? = null
-          
+
               @Volatile private var engineReady = false
               @Volatile private var engineState = "首次启动：正在准备本地模型"
               @Volatile private var currentGenerated: File? = null
@@ -239,7 +245,8 @@ jobs:
               @Volatile private var pendingSaveName: String? = null
               @Volatile private var pendingImportName: String? = null
               @Volatile private var pendingImportText: String? = null
-          
+              @Volatile private var pendingImportDenoise: Boolean = false
+
               private data class VoiceProfile(val id: String, val name: String, val referenceText: String, val fileName: String)
               private val pendingReferenceFile: File by lazy { File(filesDir, PENDING_REF_FILE) }
               private val voicesDir: File by lazy { File(filesDir, "voices").apply { mkdirs() } }
@@ -247,7 +254,7 @@ jobs:
               private val worksDir: File by lazy { File(filesDir, "works").apply { mkdirs() } }
               private val previewDir: File by lazy { File(cacheDir, "previews").apply { mkdirs() } }
               private val prefs by lazy { getSharedPreferences("voiceforge", MODE_PRIVATE) }
-          
+
               @SuppressLint("SetJavaScriptEnabled")
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -255,7 +262,7 @@ jobs:
                   window.statusBarColor = android.graphics.Color.rgb(11, 11, 12)
                   window.navigationBarColor = android.graphics.Color.rgb(11, 11, 12)
                   PDFBoxResourceLoader.init(applicationContext)
-          
+
                   webView = WebView(this)
                   setContentView(webView)
                   webView.settings.apply {
@@ -272,7 +279,7 @@ jobs:
                   webView.webChromeClient = WebChromeClient()
                   webView.addJavascriptInterface(Bridge(), "Android")
                   webView.loadUrl("file:///android_asset/index.html")
-          
+
                   executor.execute { prepareEngine() }
                   webView.postDelayed({ runCatching { showLastExitReportIfAny() } }, 1500)
               }
@@ -361,7 +368,7 @@ jobs:
                   if (javaCrashFile.isFile) { sb.append("\n【Java 崩溃】\n").append(javaCrashFile.readText().take(4000)).append('\n') }
                   if (sb.isEmpty()) return
                   if (breadcrumbFile.isFile) sb.append("\n【崩溃前最后一次生成】\n").append(breadcrumbFile.readText().take(2000))
-                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.6\n" + sb.toString()
+                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.7\n" + sb.toString()
                   runCatching { File(diagDir, "last_report.txt").writeText(report) }
                   val tv = android.widget.TextView(this).apply {
                       text = report; setTextIsSelectable(true); textSize = 12f; setPadding(32, 24, 32, 24)
@@ -380,7 +387,7 @@ jobs:
                   if (latestTs > 0) prefs.edit().putLong("diag_last_shown_exit_ts", latestTs).apply()
                   javaCrashFile.delete()
               }
-          
+
               inner class Bridge {
                   @JavascriptInterface
                   fun getState(): String {
@@ -409,7 +416,7 @@ jobs:
                       o.put("generationInProgress", generationInProgress)
                       return o.toString()
                   }
-          
+
                   @JavascriptInterface
                   fun startReferenceRecording() {
                       runOnUiThread {
@@ -420,12 +427,12 @@ jobs:
                           }
                       }
                   }
-          
+
                   @JavascriptInterface
                   fun stopReferenceRecording() {
                       stopRecorder()
                   }
-          
+
                   @JavascriptInterface
                   fun playReference() {
                       runOnUiThread {
@@ -433,14 +440,14 @@ jobs:
                           if (f?.isFile != true) toast("还没有参考声音") else playFile(f)
                       }
                   }
-          
+
                   @JavascriptInterface
                   fun deleteReference() {
                       stopRecorder()
                       if (pendingReferenceFile.exists()) pendingReferenceFile.delete()
                       js("window.onReferenceDeleted&&window.onReferenceDeleted()")
                   }
-          
+
                   @JavascriptInterface
                   fun saveRecordedVoice(name: String?) {
                       val n = name?.trim().orEmpty().ifBlank { "我的声音" }.take(40)
@@ -458,13 +465,13 @@ jobs:
                       prefs.edit().putString("active_voice_id", id).apply()
                       js("window.onVoiceLibraryChanged&&window.onVoiceLibraryChanged()")
                   }
-          
+
                   @JavascriptInterface
-                  fun importVoice(name: String?, referenceText: String?) {
+                  fun importVoice(name: String?, referenceText: String?, denoise: Boolean) {
                       val n = name?.trim().orEmpty().take(40)
                       val t = referenceText?.trim().orEmpty()
                       if (n.isBlank() || t.isBlank()) { toast("音色名称和参考原文都不能为空"); return }
-                      pendingImportName = n; pendingImportText = t
+                      pendingImportName = n; pendingImportText = t; pendingImportDenoise = denoise
                       runOnUiThread {
                           val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                               addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
@@ -472,25 +479,25 @@ jobs:
                           startActivityForResult(i, REQ_IMPORT_VOICE)
                       }
                   }
-          
+
                   @JavascriptInterface fun selectVoice(id: String?) {
                       val v = loadVoiceProfiles().firstOrNull { it.id == id } ?: return
                       prefs.edit().putString("active_voice_id", v.id).apply()
                       js("window.onVoiceLibraryChanged&&window.onVoiceLibraryChanged()")
                   }
-          
+
                   @JavascriptInterface fun playVoice(id: String?) {
                       val v = loadVoiceProfiles().firstOrNull { it.id == id } ?: return
                       val f = voiceFile(v); if (f.isFile) playFile(f) else toast("音色文件不存在")
                   }
-          
+
                   @JavascriptInterface fun deleteVoice(id: String?) {
                       val profiles = loadVoiceProfiles(); val v = profiles.firstOrNull { it.id == id } ?: return
                       voiceFile(v).delete(); profiles.remove(v); saveVoiceProfiles(profiles)
                       if (prefs.getString("active_voice_id", "") == v.id) prefs.edit().putString("active_voice_id", profiles.firstOrNull()?.id ?: "").apply()
                       js("window.onVoiceLibraryChanged&&window.onVoiceLibraryChanged()")
                   }
-          
+
                   @JavascriptInterface
                   fun pickDocument() {
                       runOnUiThread {
@@ -510,7 +517,7 @@ jobs:
                           startActivityForResult(i, REQ_DOC)
                       }
                   }
-          
+
                   @JavascriptInterface
                   fun synthesize(text: String?, style: String?, intensity: Int, preview: Boolean) {
                       val clean = text?.trim().orEmpty()
@@ -532,7 +539,7 @@ jobs:
                           js("window.onGenerationError&&window.onGenerationError('已有生成任务正在运行')")
                           return
                       }
-          
+
                       val start = {
                           generationCancel.set(false)
                           generationInProgress = true
@@ -574,7 +581,7 @@ jobs:
                       }
                       start()
                   }
-          
+
                   @JavascriptInterface
                   fun cancelGeneration() {
                       if (!generationInProgress) {
@@ -584,10 +591,10 @@ jobs:
                       generationCancel.set(true)
                       js("window.onGenerationCancelling&&window.onGenerationCancelling()")
                   }
-          
+
                   @JavascriptInterface
                   fun confirmReferenceComplete() { saveRecordedVoice("我的声音") }
-          
+
                   @JavascriptInterface
                   fun listWorks(): String {
                       val arr = JSONArray()
@@ -604,25 +611,25 @@ jobs:
                           }
                       return arr.toString()
                   }
-          
+
                   @JavascriptInterface
                   fun playWork(name: String?) {
                       safeWorkFile(name)?.let { playFile(it) } ?: toast("作品不存在")
                   }
-          
+
                   @JavascriptInterface
                   fun saveWork(name: String?) {
                       val f = safeWorkFile(name)
                       if (f == null) toast("作品不存在") else openSaveDialog(f)
                   }
-          
+
                   @JavascriptInterface
                   fun deleteWork(name: String?) {
                       val f = safeWorkFile(name) ?: return
                       if (currentGenerated?.absolutePath == f.absolutePath) currentGenerated = null
                       if (f.delete()) js("window.onHistoryChanged&&window.onHistoryChanged()")
                   }
-          
+
                   @JavascriptInterface
                   fun replayGenerated() {
                       runOnUiThread {
@@ -630,12 +637,12 @@ jobs:
                           if (f == null || !f.isFile) toast("还没有生成音频") else playFile(f)
                       }
                   }
-          
+
                   @JavascriptInterface
                   fun stopAudio() {
                       stopPlayback()
                   }
-          
+
                   @JavascriptInterface
                   fun saveGenerated() {
                       if (generationInProgress) {
@@ -650,10 +657,10 @@ jobs:
                       openSaveDialog(f)
                   }
               }
-          
-          
+
+
               private class GenerationCancelledException : RuntimeException()
-          
+
               private fun safeWorkFile(name: String?): File? {
                   if (name.isNullOrBlank()) return null
                   val f = File(worksDir, name)
@@ -661,7 +668,7 @@ jobs:
                       if (f.canonicalFile.parentFile == worksDir.canonicalFile && f.isFile) f else null
                   }.getOrNull()
               }
-          
+
               private fun openSaveDialog(f: File) {
                   if (generationInProgress) {
                       toast("正在生成，请先等待完成或取消生成")
@@ -674,7 +681,7 @@ jobs:
                       toast("WAV 自检失败：" + (t.message ?: t.javaClass.simpleName))
                       return
                   }
-          
+
                   val name = f.name.ifBlank { "VoiceForge-${System.currentTimeMillis()}.wav" }
                   pendingSaveFile = f
                   pendingSaveName = name
@@ -694,7 +701,7 @@ jobs:
                       }
                   }
               }
-          
+
               private data class StyleCfg(
                   val speed: Float,
                   val silenceScale: Float,
@@ -703,7 +710,7 @@ jobs:
                   val chunkGapMs: Int,
                   val numSteps: Int
               )
-          
+
               private fun styleFor(name: String, intensity: Int): StyleCfg {
                   val k = intensity / 100f
                   val target = when (name) {
@@ -723,7 +730,7 @@ jobs:
                       chunkGapMs = (120 + (target.chunkGapMs - 120) * k).toInt()
                   )
               }
-          
+
               private fun transformText(text: String, style: String, intensity: Int): String {
                   if (intensity < 20) return text
                   return when (style) {
@@ -735,7 +742,7 @@ jobs:
                       else -> text.replace("；", "。")
                   }
               }
-          
+
               // v0.3.5.3: ZipVoice 推理内存随参考音频长度急剧增长，且参考原文与音频不符时更严重。
               // 三星实测（v0.3.5.2 诊断报告）：参考 65.2 秒 + 原文 2 字 → 推理中被系统 SIGKILL。
               // 在调用原生推理前拦截，给出可操作的提示，而不是让进程被杀。
@@ -777,7 +784,7 @@ jobs:
                   source = transformText(source, style, intensity)
                   val chunks = splitText(source, if (preview) 120 else 300)
                   if (chunks.isEmpty()) error("没有可生成的文字")
-          
+
                   val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
                   val targetDir = if (preview) previewDir else worksDir
                   val tempFile = File(targetDir, ".part-$stamp-${System.nanoTime()}.wav")
@@ -786,7 +793,7 @@ jobs:
                   } else {
                       File(targetDir, "VoiceForge-$stamp.wav")
                   }
-          
+
                   try {
                       WavStreamWriter(tempFile, SAMPLE_RATE).use { writer ->
                           chunks.forEachIndexed { index, chunk ->
@@ -802,7 +809,7 @@ jobs:
                                   numSteps = cfg.numSteps,
                                   extra = mapOf("min_char_in_sentence" to "2")
                               )
-          
+
                               writeBreadcrumb(
                                   "原生推理开始（若停在这里，说明进程在推理中死亡）",
                                   "voice=${voice.name} refSeconds=${String.format(Locale.US, "%.1f", ref.samples.size.toFloat() / ref.sampleRate.coerceAtLeast(1))} " +
@@ -818,16 +825,16 @@ jobs:
                                       1
                                   }
                               }
-          
+
                               if (generationCancel.get() || shuttingDown) throw GenerationCancelledException()
                               writer.appendSilence(cfg.chunkGapMs)
                           }
                       }
-          
+
                       val info = inspectPcm16Wav(tempFile)
                       check(info.dataSize > 0L && info.sampleRate > 0) { "生成 WAV 无效" }
                       if (generationCancel.get() || shuttingDown) throw GenerationCancelledException()
-          
+
                       if (finalFile.exists()) finalFile.delete()
                       if (!tempFile.renameTo(finalFile)) {
                           FileInputStream(tempFile).use { input ->
@@ -835,7 +842,7 @@ jobs:
                           }
                           tempFile.delete()
                       }
-          
+
                       currentGenerated = finalFile
                       writeBreadcrumb("生成完成", "voice=${voice.name} chunks=${chunks.size} file=${finalFile.name}")
                       if (!preview) pruneOldWorks(50)
@@ -850,7 +857,7 @@ jobs:
                       throw t
                   }
               }
-          
+
               private fun pruneOldWorks(limit: Int) {
                   worksDir.listFiles()
                       ?.filter { it.isFile && it.extension.equals("wav", true) }
@@ -858,7 +865,7 @@ jobs:
                       ?.drop(limit)
                       ?.forEach { it.delete() }
               }
-          
+
               private fun postProcess(input: FloatArray, gain: Float, tone: Float): FloatArray {
                   val out = FloatArray(input.size)
                   var prev = 0f
@@ -880,7 +887,7 @@ jobs:
                   }
                   return out
               }
-          
+
               private fun voiceFile(v: VoiceProfile): File = File(voicesDir, v.fileName)
 
 
@@ -932,7 +939,7 @@ jobs:
                           copyAssetTree(MODEL_ASSET_DIR, modelDir)
                           marker.writeText("ok")
                       }
-          
+
                       val required = listOf(
                           "encoder.int8.onnx",
                           "decoder.int8.onnx",
@@ -944,7 +951,7 @@ jobs:
                           check(File(modelDir, name).isFile) { "模型文件缺失：$name" }
                       }
                       check(File(modelDir, "espeak-ng-data").isDirectory) { "模型目录缺失：espeak-ng-data" }
-          
+
                       engineState = "正在加载本地声音模型"
                       js("window.onEngineState&&window.onEngineState(${q(engineState)},false)")
                       val zip = OfflineTtsZipVoiceModelConfig(
@@ -978,7 +985,7 @@ jobs:
                       js("window.onEngineState&&window.onEngineState(${q(engineState)},false)")
                   }
               }
-          
+
               private fun copyAssetTree(assetPath: String, dest: File) {
                   val list = assets.list(assetPath) ?: emptyArray()
                   if (list.isEmpty()) {
@@ -993,7 +1000,7 @@ jobs:
                       copyAssetTree("$assetPath/$child", File(dest, child))
                   }
               }
-          
+
               private fun startRecorder() {
                   if (recording.get()) return
                   runCatching { pendingReferenceFile.delete() }
@@ -1022,7 +1029,7 @@ jobs:
                   recording.set(true)
                   ar.startRecording()
                   js("window.onRecordingStarted&&window.onRecordingStarted()")
-          
+
                   recordThread = Thread {
                       val raw = ByteArrayOutputStream()
                       val buf = ShortArray(4096)
@@ -1062,7 +1069,7 @@ jobs:
                       it.start()
                   }
               }
-          
+
               private data class RecordingQuality(
                   val ok: Boolean,
                   val message: String,
@@ -1072,13 +1079,13 @@ jobs:
                   val silencePct: Double,
                   val dynamicDb: Double
               )
-          
+
               private fun analyzeRecordingQuality(pcm: ByteArray, sampleRate: Int): RecordingQuality {
                   val sampleCount = pcm.size / 2
                   val seconds = sampleCount.toDouble() / sampleRate
                   if (seconds < 7.0) return RecordingQuality(false, "录音太短。请完整读完参考句，建议 8–20 秒。", seconds, -99.0, 0.0, 100.0, 0.0)
                   if (seconds > 60.5) return RecordingQuality(false, "录音太长，请控制在 60 秒以内。", seconds, -99.0, 0.0, 100.0, 0.0)
-          
+
                   var sumSq = 0.0
                   var peak = 0
                   var clipped = 0
@@ -1106,7 +1113,7 @@ jobs:
                       }
                       i += 2
                   }
-          
+
                   val rms = sqrt(sumSq / sampleCount.coerceAtLeast(1)) / 32768.0
                   val rmsDb = 20.0 * log10(rms.coerceAtLeast(1e-9))
                   val clipPct = clipped * 100.0 / sampleCount.coerceAtLeast(1)
@@ -1118,7 +1125,7 @@ jobs:
                       return sorted[idx]
                   }
                   val dynamicDb = percentile(0.90) - percentile(0.10)
-          
+
                   val message = when {
                       rmsDb < -35.0 -> "声音太小或环境太远，请靠近手机重新录制。"
                       rmsDb > -5.0 -> "声音过大，请离麦克风稍远一些重新录制。"
@@ -1129,14 +1136,14 @@ jobs:
                   }
                   return RecordingQuality(message.isEmpty(), message, seconds, rmsDb, clipPct, silencePct, dynamicDb)
               }
-          
+
               private fun stopRecorder() {
                   recording.set(false)
                   runCatching { recorder?.stop() }
               }
-          
+
               private data class WavData(val sampleRate: Int, val samples: FloatArray)
-          
+
               private fun readOwnWav(file: File): WavData {
                   val data = file.readBytes()
                   require(data.size >= 44) { "参考音频损坏" }
@@ -1170,7 +1177,7 @@ jobs:
                   }
                   return WavData(sr, samples)
               }
-          
+
               // v0.3.5.5：用安卓系统自带解码器把 MP3 / M4A / MP4 等转成 24kHz 单声道 PCM16 WAV。
               // 超过 maxDecodeSeconds 立即停止并报错，避免把很长的视频整段读进内存。
               private val maxDecodeSeconds = 60.5
@@ -1264,6 +1271,49 @@ jobs:
                   }
               }
 
+              private fun denoiseWavInPlace(file: File) {
+                  val info = inspectPcm16Wav(file)
+                  val n = (info.dataSize / 2L).toInt()
+                  val bytes = ByteArray(n * 2)
+                  RandomAccessFile(file, "r").use { it.seek(info.dataOffset); it.readFully(bytes) }
+                  val samples = FloatArray(n) { i ->
+                      ((bytes[2 * i].toInt() and 0xff) or (bytes[2 * i + 1].toInt() shl 8)).toShort() / 32768f
+                  }
+                  writeBreadcrumb("denoise", "model=$DENOISE_MODEL_ASSET samples=$n rate=${info.sampleRate}")
+                  val cfg = OfflineSpeechDenoiserConfig(
+                      model = OfflineSpeechDenoiserModelConfig(
+                          dpdfnet = OfflineSpeechDenoiserDpdfNetModelConfig(
+                              model = DENOISE_MODEL_ASSET,
+                              attenuationLimitDb = DENOISE_ATTENUATION_LIMIT_DB
+                          ),
+                          numThreads = 2
+                      )
+                  )
+                  val denoiser = OfflineSpeechDenoiser(assets, cfg)
+                  val result = try { denoiser.run(samples, info.sampleRate) } finally { denoiser.release() }
+                  val src = result.samples
+                  val srcRate = result.sampleRate
+                  require(src.isNotEmpty() && srcRate > 0) { "降噪没有输出声音" }
+                  val outLen = (src.size.toLong() * SAMPLE_RATE / srcRate).toInt()
+                  require(outLen > 0) { "降噪输出长度异常" }
+                  val pcm = ByteArray(outLen * 2)
+                  val step = srcRate.toDouble() / SAMPLE_RATE
+                  for (i in 0 until outLen) {
+                      val pos = i * step
+                      val i0 = pos.toInt().coerceAtMost(src.size - 1)
+                      val i1 = (i0 + 1).coerceAtMost(src.size - 1)
+                      val frac = (pos - i0).toFloat()
+                      val v = (src[i0] * (1 - frac) + src[i1] * frac).coerceIn(-1f, 1f)
+                      val s = (v * 32767f).toInt()
+                      pcm[i * 2] = (s and 0xff).toByte()
+                      pcm[i * 2 + 1] = ((s shr 8) and 0xff).toByte()
+                  }
+                  val tmp = File(file.parentFile, file.name + ".denoise.tmp")
+                  writePcm16Wav(tmp, pcm, SAMPLE_RATE)
+                  if (!tmp.renameTo(file)) { tmp.copyTo(file, overwrite = true); tmp.delete() }
+                  writeBreadcrumb("denoise-done", "outSamples=$outLen")
+              }
+
               private fun writePcm16Wav(file: File, pcm: ByteArray, sampleRate: Int) {
                   FileOutputStream(file).use { out ->
                       val dataSize = pcm.size
@@ -1282,7 +1332,7 @@ jobs:
                       out.write(pcm)
                   }
               }
-          
+
               private class WavStreamWriter(private val file: File, private val sampleRate: Int) : AutoCloseable {
                   private val raf = RandomAccessFile(file, "rw")
                   private var sampleCount = 0L
@@ -1333,7 +1383,7 @@ jobs:
                       }
                   }
               }
-          
+
               private fun splitText(text: String, maxChars: Int): List<String> {
                   val normalized = text.replace("\r\n", "\n").replace('\r', '\n').replace(Regex("[ \t]+"), " ").trim()
                   if (normalized.isEmpty()) return emptyList()
@@ -1342,13 +1392,13 @@ jobs:
                   val paragraphs = normalized.split(Regex("\n\\s*\n+")).map { it.trim() }.filter { it.isNotEmpty() }
                   val output = mutableListOf<String>()
                   val pack = StringBuilder()
-          
+
                   fun flushPack() {
                       val s = pack.toString().trim()
                       if (s.isNotEmpty()) output += s
                       pack.clear()
                   }
-          
+
                   fun appendSentence(sentence: String) {
                       val s = sentence.trim()
                       if (s.isEmpty()) return
@@ -1361,7 +1411,7 @@ jobs:
                       else if (pack.length + s.length <= targetMax) pack.append(s)
                       else { flushPack(); pack.append(s) }
                   }
-          
+
                   paragraphs.forEachIndexed { pIndex, paragraph ->
                       splitIntoLogicalSentences(paragraph).forEach { appendSentence(it) }
                       if (pack.length >= targetMin || pIndex == paragraphs.lastIndex) flushPack()
@@ -1370,7 +1420,7 @@ jobs:
                   flushPack()
                   return output
               }
-          
+
               private fun splitIntoLogicalSentences(paragraph: String): List<String> {
                   val output = mutableListOf<String>()
                   val buf = StringBuilder()
@@ -1393,7 +1443,7 @@ jobs:
                   if (tail.isNotEmpty()) output += tail
                   return output
               }
-          
+
               private fun splitLongSentence(sentence: String, targetMin: Int, targetMax: Int): List<String> {
                   val output = mutableListOf<String>()
                   var remaining = sentence.trim()
@@ -1410,7 +1460,7 @@ jobs:
                   if (remaining.isNotEmpty()) output += remaining
                   return output
               }
-          
+
               private fun previewText(text: String): String {
                   val t = text.trim()
                   if (t.length <= 100) return t
@@ -1423,7 +1473,7 @@ jobs:
                   }
                   return t.substring(0, end)
               }
-          
+
               override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
                   if (requestCode == REQ_MIC && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
@@ -1432,28 +1482,28 @@ jobs:
                       toast("需要麦克风权限才能建立你的本地音色")
                   }
               }
-          
+
               @Deprecated("Deprecated in Java")
               override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
                   super.onActivityResult(requestCode, resultCode, data)
-          
+
                   if (requestCode == REQ_SAVE_WAV) {
                       val fileToSave = pendingSaveFile
                       val suggestedName = pendingSaveName ?: "VoiceForge.wav"
                       pendingSaveFile = null
                       pendingSaveName = null
-          
+
                       if (resultCode != RESULT_OK) {
                           js("window.onSaveCancelled&&window.onSaveCancelled()")
                           return
                       }
-          
+
                       val uri = data?.data
                       if (uri == null || fileToSave == null || !fileToSave.isFile) {
                           js("window.onGenerationError&&window.onGenerationError('保存失败：目标文件无效')")
                           return
                       }
-          
+
                       executor.execute {
                           try {
                               contentResolver.openOutputStream(uri, "w")?.use { out ->
@@ -1462,7 +1512,7 @@ jobs:
                                   }
                                   out.flush()
                               } ?: error("系统没有返回可写输出流")
-          
+
                               val actualName = runCatching { getFileName(uri) }
                                   .getOrDefault(suggestedName)
                               js("window.onSaved&&window.onSaved(${q(actualName)})")
@@ -1472,10 +1522,10 @@ jobs:
                       }
                       return
                   }
-          
+
                   if (requestCode == REQ_IMPORT_VOICE) {
-                      val n = pendingImportName; val rt = pendingImportText
-                      pendingImportName = null; pendingImportText = null
+                      val n = pendingImportName; val rt = pendingImportText; val wantDenoise = pendingImportDenoise
+                      pendingImportName = null; pendingImportText = null; pendingImportDenoise = false
                       if (resultCode != RESULT_OK) return
                       val uri = data?.data
                       if (uri == null) {
@@ -1525,10 +1575,18 @@ jobs:
                               val importSeconds = info.dataSize.toDouble() / 2.0 / info.sampleRate.coerceAtLeast(1)
                               referenceProblem(importSeconds, rt)?.let { throw IllegalArgumentException(it) }
                               if (importSeconds > softReferenceSeconds) toast(longReferenceWarning(importSeconds))
+                              if (wantDenoise) {
+                                  toast("正在降噪，请稍候…")
+                                  try {
+                                      denoiseWavInPlace(dest)
+                                  } catch (t: Throwable) {
+                                      throw IllegalStateException("降噪失败：" + (t.message ?: t.javaClass.simpleName))
+                                  }
+                              }
                               val profiles = loadVoiceProfiles(); profiles += VoiceProfile(id, n, rt, fileName); saveVoiceProfiles(profiles)
                               prefs.edit().putString("active_voice_id", id).apply()
                               js("window.onVoiceLibraryChanged&&window.onVoiceLibraryChanged()")
-                              toast("已导入音色：$n（${info.sampleRate}Hz）")
+                              toast(if (wantDenoise) "已导入音色（已降噪）：$n" else "已导入音色：$n（${info.sampleRate}Hz）")
                           } catch (t: Throwable) {
                               runCatching { dest.delete() }
                               js("window.onGenerationError&&window.onGenerationError(${q("导入音色失败（$pickedName）：" + (t.message ?: t.javaClass.simpleName))})")
@@ -1555,7 +1613,7 @@ jobs:
                       }
                   }
               }
-          
+
               private fun getFileName(uri: Uri): String {
                   var result = "文档"
                   val c: Cursor? = contentResolver.query(uri, null, null, null, null)
@@ -1565,14 +1623,14 @@ jobs:
                   }
                   return result
               }
-          
+
               private fun readText(uri: Uri): String {
                   contentResolver.openInputStream(uri).use { input ->
                       requireNotNull(input) { "无法打开文件" }
                       return input.readBytes().toString(StandardCharsets.UTF_8)
                   }
               }
-          
+
               private fun extractPdf(uri: Uri): String {
                   contentResolver.openInputStream(uri).use { input ->
                       requireNotNull(input) { "无法打开 PDF" }
@@ -1581,7 +1639,7 @@ jobs:
                       }
                   }
               }
-          
+
               private fun extractDocx(uri: Uri): String {
                   contentResolver.openInputStream(uri).use { input ->
                       requireNotNull(input) { "无法打开 DOCX" }
@@ -1608,7 +1666,7 @@ jobs:
                   }
                   error("DOCX 正文不存在")
               }
-          
+
               private data class WavInfo(
                   val sampleRate: Int,
                   val channels: Int,
@@ -1616,13 +1674,13 @@ jobs:
                   val dataOffset: Long,
                   val dataSize: Long
               )
-          
+
               private fun readLe16(raf: RandomAccessFile): Int {
                   val b0 = raf.readUnsignedByte()
                   val b1 = raf.readUnsignedByte()
                   return b0 or (b1 shl 8)
               }
-          
+
               private fun readLe32(raf: RandomAccessFile): Long {
                   val b0 = raf.readUnsignedByte().toLong()
                   val b1 = raf.readUnsignedByte().toLong()
@@ -1630,7 +1688,7 @@ jobs:
                   val b3 = raf.readUnsignedByte().toLong()
                   return b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
               }
-          
+
               private fun inspectPcm16Wav(file: File): WavInfo {
                   RandomAccessFile(file, "r").use { raf ->
                       require(raf.length() >= 44L) { "WAV 文件太小" }
@@ -1639,13 +1697,13 @@ jobs:
                       readLe32(raf)
                       val wave = ByteArray(4); raf.readFully(wave)
                       require(String(wave, Charsets.US_ASCII) == "WAVE") { "WAV 缺少 WAVE 标记" }
-          
+
                       var channels = 0
                       var sampleRate = 0
                       var bits = 0
                       var dataOffset = -1L
                       var dataSize = 0L
-          
+
                       while (raf.filePointer + 8 <= raf.length()) {
                           val idb = ByteArray(4); raf.readFully(idb)
                           val id = String(idb, Charsets.US_ASCII)
@@ -1667,7 +1725,7 @@ jobs:
                           require(next <= raf.length() + 1L) { "WAV chunk 长度异常" }
                           raf.seek(next.coerceAtMost(raf.length()))
                       }
-          
+
                       require(dataOffset >= 0L && dataSize > 0L) { "WAV 缺少有效 data 区" }
                       require(channels == 1) { "当前只支持单声道 WAV" }
                       require(bits == 16) { "当前只支持 PCM16 WAV" }
@@ -1676,7 +1734,7 @@ jobs:
                       return WavInfo(sampleRate, channels, bits, dataOffset, dataSize)
                   }
               }
-          
+
               private fun stopPlayback() {
                   playbackToken.incrementAndGet()
                   val old = audioTrack
@@ -1686,11 +1744,11 @@ jobs:
                   runCatching { old?.stop() }
                   runCatching { old?.release() }
               }
-          
+
               private fun playFile(file: File) {
                   stopPlayback()
                   val myToken = playbackToken.get()
-          
+
                   Thread {
                       var localTrack: AudioTrack? = null
                       try {
@@ -1701,7 +1759,7 @@ jobs:
                               AudioFormat.ENCODING_PCM_16BIT
                           )
                           check(minBuffer > 0) { "AudioTrack 无法创建缓冲区：$minBuffer" }
-          
+
                           val track = AudioTrack.Builder()
                               .setAudioAttributes(
                                   AudioAttributes.Builder()
@@ -1719,13 +1777,13 @@ jobs:
                               .setBufferSizeInBytes(max(minBuffer, 32768))
                               .setTransferMode(AudioTrack.MODE_STREAM)
                               .build()
-          
+
                           check(track.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack 初始化失败" }
                           localTrack = track
                           audioTrack = track
                           track.play()
                           js("window.onPlaybackStarted&&window.onPlaybackStarted()")
-          
+
                           RandomAccessFile(file, "r").use { raf ->
                               raf.seek(info.dataOffset)
                               var remaining = info.dataSize
@@ -1743,7 +1801,7 @@ jobs:
                                   remaining -= n
                               }
                           }
-          
+
                           if (playbackToken.get() == myToken && !shuttingDown) {
                               Thread.sleep(180L)
                               if (playbackToken.get() == myToken && !shuttingDown) {
@@ -1767,20 +1825,20 @@ jobs:
                       start()
                   }
               }
-          
+
           private fun js(script: String) {
                   if (shuttingDown) return
                   runOnUiThread {
                       if (!shuttingDown) runCatching { webView.evaluateJavascript(script, null) }
                   }
               }
-          
+
               private fun q(s: String): String = JSONObject.quote(s)
-          
+
               private fun toast(s: String) {
                   runOnUiThread { Toast.makeText(this, s, Toast.LENGTH_LONG).show() }
               }
-          
+
               private fun friendly(t: Throwable): String {
                   val m = t.message ?: t.javaClass.simpleName
                   return when {
@@ -1791,25 +1849,25 @@ jobs:
                       else -> m.take(500)
                   }
               }
-          
+
               private fun littleInt(b: ByteArray, o: Int): Int =
                   (b[o].toInt() and 0xff) or
                       ((b[o + 1].toInt() and 0xff) shl 8) or
                       ((b[o + 2].toInt() and 0xff) shl 16) or
                       ((b[o + 3].toInt() and 0xff) shl 24)
-          
+
               private fun littleShort(b: ByteArray, o: Int): Int =
                   (b[o].toInt() and 0xff) or ((b[o + 1].toInt() and 0xff) shl 8)
-          
+
               private fun writeLE16(out: FileOutputStream, v: Int) {
                   out.write(v and 0xff); out.write((v shr 8) and 0xff)
               }
-          
+
               private fun writeLE32(out: FileOutputStream, v: Int) {
                   out.write(v and 0xff); out.write((v shr 8) and 0xff)
                   out.write((v shr 16) and 0xff); out.write((v shr 24) and 0xff)
               }
-          
+
               override fun onDestroy() {
                   shuttingDown = true
                   generationCancel.set(true)
@@ -1854,23 +1912,23 @@ jobs:
           label.range{display:block;font-size:12px;color:#c7c0b5;margin:15px 0 4px}.rangehead{display:flex;justify-content:space-between}.rangehead span:last-child{color:var(--gold)}input[type=range]{width:100%;accent-color:#a32a27}.progress{height:7px;background:#242326;border-radius:99px;overflow:hidden;margin-top:10px}.bar{height:100%;width:0;background:linear-gradient(90deg,#8d2926,#d8b77a);transition:.25s}
           .meta{display:flex;justify-content:space-between;color:#817c74;font-size:11px;margin:8px 2px}.notice{font-size:11px;color:#847f77;line-height:1.6;margin-top:11px}.nav{position:fixed;left:0;right:0;bottom:0;background:rgba(12,12,13,.97);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 8px 15px}.nav button{background:none;border:0;color:#77736d;font-size:11px}.nav button.active{color:var(--gold)}.screen{display:none}.screen.active{display:block}
           @media(max-width:380px){.hero h1{font-size:28px}.styles{grid-template-columns:1fr}.btn{padding:11px 12px}}
-          .imp-mask{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:flex-end;justify-content:center;z-index:50}.imp-mask.show{display:flex}.imp-box{width:100%;max-width:760px;max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 16px 22px}.imp-box h2{font-size:17px;margin:0 0 10px}.imp-box label{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px}.imp-box input,.imp-box textarea{width:100%;background:#0f0f11;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:16px;line-height:1.6}.imp-box textarea{min-height:42vh;resize:vertical}.imp-count{font-size:12px;color:var(--muted);margin-top:6px}.imp-row{display:flex;gap:10px;margin-top:14px}.imp-row .btn{flex:1}
+          .imp-mask{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:flex-end;justify-content:center;z-index:50}.imp-mask.show{display:flex}.imp-box{width:100%;max-width:760px;max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 16px 22px}.imp-box h2{font-size:17px;margin:0 0 10px}.imp-box label{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px}.imp-box input,.imp-box textarea{width:100%;background:#0f0f11;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:16px;line-height:1.6}.imp-box textarea{min-height:42vh;resize:vertical}.imp-count{font-size:12px;color:var(--muted);margin-top:6px}.imp-row{display:flex;gap:10px;margin-top:14px}.imp-row .btn{flex:1}.imp-box label.imp-check{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--text);margin:14px 0 0}.imp-box label.imp-check input{width:22px;height:22px;flex:none}
           </style>
           </head>
           <body>
           <div class="app">
-            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.6</small></div></div>
-          
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.7</small></div></div>
+
             <section id="home" class="screen active">
               <div class="hero"><h1>任何参考音色，<br>都留在你的手机里。</h1><p>不用 API，不用电脑。录制自己的声音，或导入你指定的音频（WAV/MP3/MP4）和对应原文，再用当前选中的音色离线朗读。</p></div>
-          
+
               <div class="card">
                 <h2>① 本地 AI 引擎</h2>
                 <div class="sub">ZipVoice-Distill INT8 + sherpa-onnx，中文/英文零样本声音克隆。</div>
                 <div id="engineState" class="status">首次启动：正在准备本地模型</div>
                 <div class="notice">第一次打开会把模型从 APK 释放到手机私有目录，可能需要几十秒；以后不再重复。</div>
               </div>
-          
+
               <div class="card">
                 <h2>② 录制一个音色</h2>
                 <div class="sub">请用你最自然的声音，把下面这段话完整读一遍。不要表演，不要故意压低声音。</div>
@@ -1884,7 +1942,7 @@ jobs:
                 <div id="refState" class="status">还没有参考声音</div>
                 <button id="confirmRefBtn" class="btn ghost" style="margin-top:10px;display:none" onclick="saveRecordedVoicePrompt()">✓ 保存到音色库</button>
               </div>
-          
+
               <div class="card">
                 <h2>③ 导入文档</h2>
                 <div class="sub">支持 TXT / MD / DOCX / PDF，也可以直接粘贴文字。</div>
@@ -1894,25 +1952,25 @@ jobs:
                 </div>
                 <div id="docState" class="status">还没有导入文档</div>
               </div>
-          
+
               <button class="btn primary" style="width:100%;margin-top:4px" onclick="go('studio')">进入导演台 →</button>
             </section>
-          
+
             <section id="studio" class="screen">
               <div class="hero"><h1 style="font-size:28px">导演台</h1><p>先锁定“你是谁”，再改变“怎么说”。</p></div>
-          
+
               <div class="card">
                 <h2>朗读脚本</h2>
                 <textarea id="script" placeholder="导入文档，或者把文字粘贴到这里……"></textarea>
                 <div class="meta"><span id="chars">0 字</span><span id="eta">预计 0 分钟</span></div>
               </div>
-          
+
               <div class="card">
                 <h2>六种演绎</h2>
                 <div class="sub">全部使用当前选中的参考音色。风格主要通过本地语速、停顿、句间节奏、能量和轻量音色处理塑造。</div>
                 <div id="styles" class="styles"></div>
                 <label class="range"><div class="rangehead"><span>风格强度</span><span id="intensityV">75</span></div><input id="intensity" type="range" min="0" max="100" value="75" oninput="intensityV.textContent=this.value"></label>
-          
+
                 <div class="row" style="margin-top:16px">
                   <button class="btn gold" onclick="generate(true)">试听一小段</button>
                   <button class="btn primary" onclick="generate(false)">生成整篇</button>
@@ -1925,14 +1983,14 @@ jobs:
                 <div class="progress"><div id="bar" class="bar"></div></div>
                 <div class="notice">本地 ZipVoice 的强项是“像你”。六种表演不会像大型云端模型那样理解复杂导演语言，但不会再换成系统 TTS 的陌生声音。</div>
               </div>
-          
+
               <div class="card">
                 <h2>作品历史</h2>
                 <div class="sub">全文生成成功后才进入这里；新任务失败或取消不会覆盖旧作品。</div>
                 <div id="history" style="margin-top:10px"></div>
               </div>
             </section>
-          
+
             <section id="voice" class="screen">
               <div class="hero"><h1 style="font-size:28px">音色库</h1><p>“我的声音”“梁祝女声”或其他指定声音，都只是可切换的参考音色。</p></div>
               <div class="card">
@@ -1942,21 +2000,21 @@ jobs:
               <div class="card"><h2>已保存音色</h2><div id="voiceList"></div></div>
               <div class="card"><h2>参考原文很重要</h2><div class="sub">每个音色都保存“参考 WAV + 与 WAV 完全对应的逐字文本”。导入指定声音时，请同时填写它实际说出的原文，否则 zero-shot 克隆会不稳定。</div></div>
             </section>
-          
+
             <section id="about" class="screen">
               <div class="hero"><h1 style="font-size:28px">离线版</h1><p>这版的设计目标只有一个：真正让手机独立完成声音克隆。</p></div>
               <div class="card"><h2>隐私</h2><div class="sub">录音、模型、文档和生成 WAV 都只在手机本地处理。App 不申请网络权限；参考声音和作品目录同时被排除在 Android 云备份与设备迁移之外。</div></div>
               <div class="card"><h2>模型</h2><div class="sub">ZipVoice-Distill INT8，当前引擎稳定支持中文/英文零样本克隆；音色库已经与语言解耦。阿拉伯语需要下一步替换或增加支持阿语的本地多语言模型。</div></div>
             </section>
           </div>
-          
+
           <nav class="nav">
           <button class="active" data-go="home" onclick="go('home')">⌂<br>首页</button>
           <button data-go="voice" onclick="go('voice')">◉<br>音色</button>
           <button data-go="studio" onclick="go('studio')">✦<br>导演台</button>
           <button data-go="about" onclick="go('about')">☰<br>关于</button>
           </nav>
-          
+
           <script>
           const presets=[
           ["深沉克制","低沉、慢一些、长停顿、句尾收住。"],
@@ -1967,7 +2025,7 @@ jobs:
           ["雄浑壮烈","厚重、慢、段落推进明显、能量更强。"]
           ];
           let selected="深沉克制", recording=false;
-          
+
           function go(id){
            document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('active',x.id===id));
            document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.go===id));
@@ -1977,14 +2035,14 @@ jobs:
            styles.innerHTML=presets.map(([n,d])=>`<div class="style ${selected===n?'active':''}" onclick="selected='${n}';renderStyles()"><b>${n}</b><p>${d}</p></div>`).join('');
           }
           renderStyles();
-          
+
           const script=document.getElementById('script');
           script.addEventListener('input',()=>{
            const n=script.value.replace(/\s/g,'').length;
            chars.textContent=n+' 字';
            eta.textContent='预计 '+(n?Math.max(1,Math.ceil(n/240)):0)+' 分钟';
           });
-          
+
           function refresh(){
            try{
              const s=JSON.parse(Android.getState());
@@ -2004,6 +2062,7 @@ jobs:
           function importVoicePrompt(){
            const m=document.getElementById('impMask');
            document.getElementById('impCount').textContent=countImpText();
+           try{document.getElementById('impDenoise').checked=localStorage.getItem('vf_denoise')==='1'}catch(e){}
            m.classList.add('show');
            setTimeout(()=>document.getElementById('impName').focus(),50);
           }
@@ -2018,7 +2077,8 @@ jobs:
            if(!name){alert('请填写音色名称');return;}
            if(!text){alert('请填写音频里说出的原文');return;}
            closeImport();
-           Android.importVoice(name,text);
+           const dn=document.getElementById('impDenoise').checked;try{localStorage.setItem('vf_denoise',dn?'1':'0')}catch(e){}
+           Android.importVoice(name,text,dn);
           }
           document.addEventListener('input',e=>{if(e.target&&e.target.id==='impText')document.getElementById('impCount').textContent=countImpText()});
           function renderVoiceList(items,activeId){
@@ -2057,7 +2117,7 @@ jobs:
            go('studio');
           };
           window.onImportError=(m)=>alert(m);
-          
+
           function generate(preview){
            const t=script.value.trim();
            if(!t){alert('请先导入或粘贴文字');return}
@@ -2082,7 +2142,7 @@ jobs:
           window.onPlaybackFinished=()=>{genState.textContent='播放完成 ✓';genState.className='status ok'};
           window.onSaved=(name)=>{genState.textContent='WAV 已保存 ✓ · '+name;genState.className='status ok';alert('WAV 已保存：'+name)};
           window.onSaveCancelled=()=>{genState.textContent='已取消保存';};
-          
+
           function refreshHistory(){
            try{
             const items=JSON.parse(Android.listWorks());
@@ -2094,7 +2154,7 @@ jobs:
            }catch(e){history.innerHTML='<div class="sub">历史读取失败</div>';}
           }
           window.onHistoryChanged=()=>refreshHistory();
-          
+
           refresh();
           refreshHistory();
           </script>
@@ -2104,6 +2164,7 @@ jobs:
           <label for="impText">这段音频里实际说出的全部原文（可直接粘贴，中英文都可以）</label>
           <textarea id="impText" placeholder="把音频里说的每一句话完整填进来。建议音频 8–20 秒。"></textarea>
           <div class="imp-count" id="impCount">0 字</div>
+          <label class="imp-check"><input type="checkbox" id="impDenoise"> 导入时降噪（减少背景噪音、人声嘈杂，处理需要几秒到半分钟）</label>
           <div class="imp-row"><button class="btn ghost" onclick="closeImport()">取消</button><button class="btn gold" onclick="submitImport()">选择音频文件并导入</button></div>
           </div></div>
           </body>
@@ -2207,6 +2268,10 @@ jobs:
           test -d app/src/main/assets/zipvoice/espeak-ng-data
           echo 'Model payload:'
           du -sh app/src/main/assets/zipvoice
+          mkdir -p app/src/main/assets/denoise
+          curl -fL --retry 5 --retry-delay 3 -o app/src/main/assets/denoise/dpdfnet2_48khz_hr.onnx "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/dpdfnet2_48khz_hr.onnx"
+          test $(stat -c%s app/src/main/assets/denoise/dpdfnet2_48khz_hr.onnx) -gt 5000000
+          ls -lh app/src/main/assets/denoise
 
 
       - name: Set up Java 17
@@ -2250,6 +2315,10 @@ jobs:
           grep -q 'dataExtractionRules' app/src/main/AndroidManifest.xml
           grep -q '取消生成' app/src/main/assets/index.html
           grep -q '停止播放' app/src/main/assets/index.html
+          grep -q 'fun denoiseWavInPlace' app/src/main/java/com/hansom/voiceforge/MainActivity.kt
+          grep -q 'denoise/dpdfnet2_48khz_hr.onnx' app/src/main/java/com/hansom/voiceforge/MainActivity.kt
+          grep -q 'id="impDenoise"' app/src/main/assets/index.html
+          grep -q 'Android.importVoice(name,text,dn)' app/src/main/assets/index.html
 
 
       - name: Build offline APK
@@ -2271,18 +2340,34 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/zipvoice/decoder.int8.onnx'
           unzip -l "$APK" | grep -q 'assets/zipvoice/vocos_24khz.onnx'
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libsherpa-onnx-jni.so'
+          unzip -l "$APK" | grep -q 'assets/denoise/dpdfnet2_48khz_hr.onnx'
           mkdir -p dist
-          cp "$APK" dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk
-          sha256sum dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk | tee dist/SHA256.txt
-          ls -lh dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk
+          cp "$APK" dist/VoiceForge-v0.3.5.7-DENOISE.apk
+          sha256sum dist/VoiceForge-v0.3.5.7-DENOISE.apk | tee dist/SHA256.txt
+          ls -lh dist/VoiceForge-v0.3.5.7-DENOISE.apk
 
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceForge-v0.3.5.6-IMPORT-DIALOG-APK
+          name: VoiceForge-v0.3.5.7-DENOISE-APK
           path: |
-            dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk
+            dist/VoiceForge-v0.3.5.7-DENOISE.apk
             dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
+
+
+      - name: Publish APK to GitHub Release (direct phone download)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=voiceforge-v0.3.5.7
+          cp dist/VoiceForge-v0.3.5.7-DENOISE.apk dist/VoiceForge-v0.3.5.7.apk
+          gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" dist/VoiceForge-v0.3.5.7.apk -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "声魄 VoiceForge v0.3.5.7" \
+            --notes "离线中英文声音克隆。v0.3.5.7：导入音色时可选「降噪」（DPDFNet 48kHz 离线降噪）。构建 run ${GITHUB_RUN_ID}。"
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[]|.name+" "+(.size|tostring)'
