@@ -1,4 +1,4 @@
-name: Build VoiceForge v0.3.5.5 MP3 MP4 Import APK
+name: Build VoiceForge v0.3.5.6 Import Dialog APK
 
 
 on:
@@ -6,7 +6,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/VoiceForge_v0.3.5.5_mp3-mp4-import_build-apk.yml"
+      - ".github/workflows/VoiceForge_v0.3.5.6_import-dialog_build-apk.yml"
 
 
 permissions:
@@ -75,8 +75,8 @@ jobs:
                   applicationId "com.hansom.voiceforge"
                   minSdk 29
                   targetSdk 34
-                  versionCode 40
-                  versionName "0.3.5.5"
+                  versionCode 41
+                  versionName "0.3.5.6"
                   ndk {
                       abiFilters "arm64-v8a"
                   }
@@ -361,7 +361,7 @@ jobs:
                   if (javaCrashFile.isFile) { sb.append("\n【Java 崩溃】\n").append(javaCrashFile.readText().take(4000)).append('\n') }
                   if (sb.isEmpty()) return
                   if (breadcrumbFile.isFile) sb.append("\n【崩溃前最后一次生成】\n").append(breadcrumbFile.readText().take(2000))
-                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.5\n" + sb.toString()
+                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.6\n" + sb.toString()
                   runCatching { File(diagDir, "last_report.txt").writeText(report) }
                   val tv = android.widget.TextView(this).apply {
                       text = report; setTextIsSelectable(true); textSize = 12f; setPadding(32, 24, 32, 24)
@@ -1854,11 +1854,12 @@ jobs:
           label.range{display:block;font-size:12px;color:#c7c0b5;margin:15px 0 4px}.rangehead{display:flex;justify-content:space-between}.rangehead span:last-child{color:var(--gold)}input[type=range]{width:100%;accent-color:#a32a27}.progress{height:7px;background:#242326;border-radius:99px;overflow:hidden;margin-top:10px}.bar{height:100%;width:0;background:linear-gradient(90deg,#8d2926,#d8b77a);transition:.25s}
           .meta{display:flex;justify-content:space-between;color:#817c74;font-size:11px;margin:8px 2px}.notice{font-size:11px;color:#847f77;line-height:1.6;margin-top:11px}.nav{position:fixed;left:0;right:0;bottom:0;background:rgba(12,12,13,.97);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 8px 15px}.nav button{background:none;border:0;color:#77736d;font-size:11px}.nav button.active{color:var(--gold)}.screen{display:none}.screen.active{display:block}
           @media(max-width:380px){.hero h1{font-size:28px}.styles{grid-template-columns:1fr}.btn{padding:11px 12px}}
+          .imp-mask{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:flex-end;justify-content:center;z-index:50}.imp-mask.show{display:flex}.imp-box{width:100%;max-width:760px;max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 16px 22px}.imp-box h2{font-size:17px;margin:0 0 10px}.imp-box label{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px}.imp-box input,.imp-box textarea{width:100%;background:#0f0f11;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:16px;line-height:1.6}.imp-box textarea{min-height:42vh;resize:vertical}.imp-count{font-size:12px;color:var(--muted);margin-top:6px}.imp-row{display:flex;gap:10px;margin-top:14px}.imp-row .btn{flex:1}
           </style>
           </head>
           <body>
           <div class="app">
-            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.5</small></div></div>
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.6</small></div></div>
           
             <section id="home" class="screen active">
               <div class="hero"><h1>任何参考音色，<br>都留在你的手机里。</h1><p>不用 API，不用电脑。录制自己的声音，或导入你指定的音频（WAV/MP3/MP4）和对应原文，再用当前选中的音色离线朗读。</p></div>
@@ -2001,10 +2002,25 @@ jobs:
            const name=prompt('给这个音色起个名字','我的声音'); if(!name)return; Android.saveRecordedVoice(name);
           }
           function importVoicePrompt(){
-           const name=prompt('音色名称，例如：梁祝女声',''); if(!name)return;
-           const text=prompt('请输入这段音频里实际说出的逐字原文（建议 8–20 秒）',''); if(!text)return;
+           const m=document.getElementById('impMask');
+           document.getElementById('impCount').textContent=countImpText();
+           m.classList.add('show');
+           setTimeout(()=>document.getElementById('impName').focus(),50);
+          }
+          function countImpText(){
+           const t=document.getElementById('impText').value;
+           const han=(t.match(/[\u4e00-\u9fff]/g)||[]).length, words=(t.match(/[A-Za-z]+/g)||[]).length;
+           return (han?han+' 个汉字':'')+(han&&words?' + ':'')+(words?words+' 个英文单词':'')||'0 字';
+          }
+          function closeImport(){document.getElementById('impMask').classList.remove('show')}
+          function submitImport(){
+           const name=document.getElementById('impName').value.trim(), text=document.getElementById('impText').value.trim();
+           if(!name){alert('请填写音色名称');return;}
+           if(!text){alert('请填写音频里说出的原文');return;}
+           closeImport();
            Android.importVoice(name,text);
           }
+          document.addEventListener('input',e=>{if(e.target&&e.target.id==='impText')document.getElementById('impCount').textContent=countImpText()});
           function renderVoiceList(items,activeId){
            if(!items.length){voiceList.innerHTML='<div class="sub">还没有保存音色</div>';return;}
            voiceList.innerHTML=items.map(v=>`<div class="status ${v.id===activeId?'ok':''}" style="margin-top:8px"><b>${v.name}</b><div class="sub">${Math.round((v.bytes||0)/1024)} KB · ${v.id===activeId?'当前使用':'可切换'}</div><div class="row" style="margin-top:8px"><button class="btn" onclick="Android.selectVoice('${v.id}')">使用</button><button class="btn ghost" onclick="Android.playVoice('${v.id}')">试听</button><button class="btn ghost" onclick="deleteVoice('${v.id}','${v.name.replace("'","\'")}')">删除</button></div></div>`).join('');
@@ -2082,6 +2098,14 @@ jobs:
           refresh();
           refreshHistory();
           </script>
+          <div class="imp-mask" id="impMask"><div class="imp-box">
+          <h2>导入音色</h2>
+          <label for="impName">音色名称</label><input id="impName" placeholder="例如：梁祝女声" maxlength="40">
+          <label for="impText">这段音频里实际说出的全部原文（可直接粘贴，中英文都可以）</label>
+          <textarea id="impText" placeholder="把音频里说的每一句话完整填进来。建议音频 8–20 秒。"></textarea>
+          <div class="imp-count" id="impCount">0 字</div>
+          <div class="imp-row"><button class="btn ghost" onclick="closeImport()">取消</button><button class="btn gold" onclick="submitImport()">选择音频文件并导入</button></div>
+          </div></div>
           </body>
           </html>
           EOF_HTML
@@ -2248,17 +2272,17 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/zipvoice/vocos_24khz.onnx'
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           mkdir -p dist
-          cp "$APK" dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk
-          sha256sum dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk | tee dist/SHA256.txt
-          ls -lh dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk
+          cp "$APK" dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk
+          sha256sum dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk | tee dist/SHA256.txt
+          ls -lh dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk
 
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceForge-v0.3.5.5-MP3-MP4-IMPORT-APK
+          name: VoiceForge-v0.3.5.6-IMPORT-DIALOG-APK
           path: |
-            dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk
+            dist/VoiceForge-v0.3.5.6-IMPORT-DIALOG.apk
             dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
