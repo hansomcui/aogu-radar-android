@@ -1,4 +1,4 @@
-name: Build VoiceForge v0.3.5.4 Reference Soft Limit APK
+name: Build VoiceForge v0.3.5.5 MP3 MP4 Import APK
 
 
 on:
@@ -6,7 +6,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/VoiceForge_v0.3.5.4_ref-soft-limit_build-apk.yml"
+      - ".github/workflows/VoiceForge_v0.3.5.5_mp3-mp4-import_build-apk.yml"
 
 
 permissions:
@@ -75,8 +75,8 @@ jobs:
                   applicationId "com.hansom.voiceforge"
                   minSdk 29
                   targetSdk 34
-                  versionCode 39
-                  versionName "0.3.5.4"
+                  versionCode 40
+                  versionName "0.3.5.5"
                   ndk {
                       abiFilters "arm64-v8a"
                   }
@@ -361,7 +361,7 @@ jobs:
                   if (javaCrashFile.isFile) { sb.append("\n【Java 崩溃】\n").append(javaCrashFile.readText().take(4000)).append('\n') }
                   if (sb.isEmpty()) return
                   if (breadcrumbFile.isFile) sb.append("\n【崩溃前最后一次生成】\n").append(breadcrumbFile.readText().take(2000))
-                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.4\n" + sb.toString()
+                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.5\n" + sb.toString()
                   runCatching { File(diagDir, "last_report.txt").writeText(report) }
                   val tv = android.widget.TextView(this).apply {
                       text = report; setTextIsSelectable(true); textSize = 12f; setPadding(32, 24, 32, 24)
@@ -1171,6 +1171,99 @@ jobs:
                   return WavData(sr, samples)
               }
           
+              // v0.3.5.5：用安卓系统自带解码器把 MP3 / M4A / MP4 等转成 24kHz 单声道 PCM16 WAV。
+              // 超过 maxDecodeSeconds 立即停止并报错，避免把很长的视频整段读进内存。
+              private val maxDecodeSeconds = 60.5
+
+              private fun decodeAudioToWav(src: File, dest: File) {
+                  val extractor = android.media.MediaExtractor()
+                  var codec: android.media.MediaCodec? = null
+                  try {
+                      extractor.setDataSource(src.absolutePath)
+                      val track = (0 until extractor.trackCount).firstOrNull {
+                          extractor.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+                      } ?: throw IllegalArgumentException("文件里没有找到音频")
+                      extractor.selectTrack(track)
+                      val inFormat = extractor.getTrackFormat(track)
+                      val mime = inFormat.getString(android.media.MediaFormat.KEY_MIME)!!
+                      val dec = android.media.MediaCodec.createDecoderByType(mime)
+                      codec = dec
+                      dec.configure(inFormat, null, null, 0)
+                      dec.start()
+
+                      var srcRate = if (inFormat.containsKey(android.media.MediaFormat.KEY_SAMPLE_RATE)) inFormat.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE) else 44100
+                      var channels = if (inFormat.containsKey(android.media.MediaFormat.KEY_CHANNEL_COUNT)) inFormat.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT) else 1
+                      var isFloat = false
+                      var mono = FloatArray(1 shl 16)
+                      var monoLen = 0
+                      val bufInfo = android.media.MediaCodec.BufferInfo()
+                      var inputDone = false
+                      var outputDone = false
+                      while (!outputDone) {
+                          if (!inputDone) {
+                              val inIndex = dec.dequeueInputBuffer(10_000)
+                              if (inIndex >= 0) {
+                                  val buf = dec.getInputBuffer(inIndex)!!
+                                  val size = extractor.readSampleData(buf, 0)
+                                  if (size < 0) {
+                                      dec.queueInputBuffer(inIndex, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                      inputDone = true
+                                  } else {
+                                      dec.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                                      extractor.advance()
+                                  }
+                              }
+                          }
+                          val outIndex = dec.dequeueOutputBuffer(bufInfo, 10_000)
+                          if (outIndex == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                              val f = dec.outputFormat
+                              if (f.containsKey(android.media.MediaFormat.KEY_SAMPLE_RATE)) srcRate = f.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
+                              if (f.containsKey(android.media.MediaFormat.KEY_CHANNEL_COUNT)) channels = f.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)
+                              isFloat = f.containsKey(android.media.MediaFormat.KEY_PCM_ENCODING) &&
+                                  f.getInteger(android.media.MediaFormat.KEY_PCM_ENCODING) == AudioFormat.ENCODING_PCM_FLOAT
+                          } else if (outIndex >= 0) {
+                              val out = dec.getOutputBuffer(outIndex)!!
+                              out.position(bufInfo.offset); out.limit(bufInfo.offset + bufInfo.size)
+                              val ch = channels.coerceAtLeast(1)
+                              val frames = if (isFloat) bufInfo.size / 4 / ch else bufInfo.size / 2 / ch
+                              if (monoLen + frames > mono.size) mono = mono.copyOf(max(mono.size * 2, monoLen + frames))
+                              val bb = out.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                              for (i in 0 until frames) {
+                                  var sum = 0f
+                                  for (c in 0 until ch) sum += if (isFloat) bb.float else bb.short / 32768f
+                                  mono[monoLen++] = sum / ch
+                              }
+                              dec.releaseOutputBuffer(outIndex, false)
+                              if (monoLen.toDouble() / srcRate.coerceAtLeast(1) > maxDecodeSeconds) {
+                                  throw IllegalArgumentException("音频超过 ${maxReferenceSeconds.toInt()} 秒上限。请剪成 60 秒以内（建议 8–20 秒）的一段后再导入。")
+                              }
+                              if (bufInfo.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                          }
+                      }
+                      require(monoLen > 0) { "没有解码出声音" }
+
+                      // 线性插值重采样到 24kHz
+                      val outLen = (monoLen.toLong() * SAMPLE_RATE / srcRate.coerceAtLeast(1)).toInt()
+                      val pcm = ByteArray(outLen * 2)
+                      val step = srcRate.toDouble() / SAMPLE_RATE
+                      for (i in 0 until outLen) {
+                          val pos = i * step
+                          val i0 = pos.toInt().coerceAtMost(monoLen - 1)
+                          val i1 = (i0 + 1).coerceAtMost(monoLen - 1)
+                          val frac = (pos - i0).toFloat()
+                          val v = (mono[i0] * (1 - frac) + mono[i1] * frac).coerceIn(-1f, 1f)
+                          val s = (v * 32767f).toInt()
+                          pcm[i * 2] = (s and 0xff).toByte()
+                          pcm[i * 2 + 1] = ((s shr 8) and 0xff).toByte()
+                      }
+                      writePcm16Wav(dest, pcm, SAMPLE_RATE)
+                  } finally {
+                      runCatching { codec?.stop() }
+                      runCatching { codec?.release() }
+                      runCatching { extractor.release() }
+                  }
+              }
+
               private fun writePcm16Wav(file: File, pcm: ByteArray, sampleRate: Int) {
                   FileOutputStream(file).use { out ->
                       val dataSize = pcm.size
@@ -1404,13 +1497,30 @@ jobs:
                               } catch (e: java.io.FileNotFoundException) {
                                   throw IllegalStateException("找不到该文件")
                               }
-                              requireNotNull(input) { "系统无法打开该文件" }.use { inp ->
-                                  FileOutputStream(dest).use { output -> inp.copyTo(output, 1024 * 1024) }
+                              val raw = File(cacheDir, "import-$id.raw")
+                              try {
+                                  requireNotNull(input) { "系统无法打开该文件" }.use { inp ->
+                                      FileOutputStream(raw).use { output -> inp.copyTo(output, 1024 * 1024) }
+                                  }
+                                  val alreadyPcm16Mono = runCatching { inspectPcm16Wav(raw) }.isSuccess
+                                  if (alreadyPcm16Mono) {
+                                      if (!raw.renameTo(dest)) { raw.copyTo(dest, overwrite = true) }
+                                  } else {
+                                      try {
+                                          decodeAudioToWav(raw, dest)
+                                      } catch (e: IllegalArgumentException) {
+                                          throw e
+                                      } catch (e: Throwable) {
+                                          throw IllegalArgumentException("无法读取这个音频（支持 WAV、MP3、M4A、MP4 等）：" + (e.message ?: e.javaClass.simpleName))
+                                      }
+                                  }
+                              } finally {
+                                  runCatching { raw.delete() }
                               }
                               val info = try {
                                   inspectPcm16Wav(dest)
                               } catch (e: Throwable) {
-                                  throw IllegalArgumentException("不是可用的 WAV（需单声道 PCM16）：" + (e.message ?: e.javaClass.simpleName))
+                                  throw IllegalArgumentException("音频转换后校验失败：" + (e.message ?: e.javaClass.simpleName))
                               }
                               val importSeconds = info.dataSize.toDouble() / 2.0 / info.sampleRate.coerceAtLeast(1)
                               referenceProblem(importSeconds, rt)?.let { throw IllegalArgumentException(it) }
@@ -1748,10 +1858,10 @@ jobs:
           </head>
           <body>
           <div class="app">
-            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.4</small></div></div>
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.5</small></div></div>
           
             <section id="home" class="screen active">
-              <div class="hero"><h1>任何参考音色，<br>都留在你的手机里。</h1><p>不用 API，不用电脑。录制自己的声音，或导入你指定的 WAV 和对应原文，再用当前选中的音色离线朗读。</p></div>
+              <div class="hero"><h1>任何参考音色，<br>都留在你的手机里。</h1><p>不用 API，不用电脑。录制自己的声音，或导入你指定的音频（WAV/MP3/MP4）和对应原文，再用当前选中的音色离线朗读。</p></div>
           
               <div class="card">
                 <h2>① 本地 AI 引擎</h2>
@@ -1826,7 +1936,7 @@ jobs:
               <div class="hero"><h1 style="font-size:28px">音色库</h1><p>“我的声音”“梁祝女声”或其他指定声音，都只是可切换的参考音色。</p></div>
               <div class="card">
                 <h2>当前音色</h2><div id="voiceState" class="status">未选择</div>
-                <div class="row" style="margin-top:12px"><button class="btn" onclick="go('home')">＋ 录制新音色</button><button class="btn gold" onclick="importVoicePrompt()">＋ 导入 WAV 音色</button></div>
+                <div class="row" style="margin-top:12px"><button class="btn" onclick="go('home')">＋ 录制新音色</button><button class="btn gold" onclick="importVoicePrompt()">＋ 导入音色（WAV/MP3/MP4）</button></div>
               </div>
               <div class="card"><h2>已保存音色</h2><div id="voiceList"></div></div>
               <div class="card"><h2>参考原文很重要</h2><div class="sub">每个音色都保存“参考 WAV + 与 WAV 完全对应的逐字文本”。导入指定声音时，请同时填写它实际说出的原文，否则 zero-shot 克隆会不稳定。</div></div>
@@ -1892,7 +2002,7 @@ jobs:
           }
           function importVoicePrompt(){
            const name=prompt('音色名称，例如：梁祝女声',''); if(!name)return;
-           const text=prompt('请输入这段 WAV 里实际说出的逐字原文',''); if(!text)return;
+           const text=prompt('请输入这段音频里实际说出的逐字原文（建议 8–20 秒）',''); if(!text)return;
            Android.importVoice(name,text);
           }
           function renderVoiceList(items,activeId){
@@ -2138,17 +2248,17 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/zipvoice/vocos_24khz.onnx'
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           mkdir -p dist
-          cp "$APK" dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk
-          sha256sum dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk | tee dist/SHA256.txt
-          ls -lh dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk
+          cp "$APK" dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk
+          sha256sum dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk | tee dist/SHA256.txt
+          ls -lh dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk
 
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceForge-v0.3.5.4-REF-SOFT-LIMIT-APK
+          name: VoiceForge-v0.3.5.5-MP3-MP4-IMPORT-APK
           path: |
-            dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk
+            dist/VoiceForge-v0.3.5.5-MP3-MP4-IMPORT.apk
             dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
