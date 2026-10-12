@@ -1,4 +1,4 @@
-name: Build VoiceForge v0.3.5.3 Reference Guard APK
+name: Build VoiceForge v0.3.5.4 Reference Soft Limit APK
 
 
 on:
@@ -6,7 +6,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/VoiceForge_v0.3.5.3_ref-guard_build-apk.yml"
+      - ".github/workflows/VoiceForge_v0.3.5.4_ref-soft-limit_build-apk.yml"
 
 
 permissions:
@@ -75,8 +75,8 @@ jobs:
                   applicationId "com.hansom.voiceforge"
                   minSdk 29
                   targetSdk 34
-                  versionCode 38
-                  versionName "0.3.5.3"
+                  versionCode 39
+                  versionName "0.3.5.4"
                   ndk {
                       abiFilters "arm64-v8a"
                   }
@@ -361,7 +361,7 @@ jobs:
                   if (javaCrashFile.isFile) { sb.append("\n【Java 崩溃】\n").append(javaCrashFile.readText().take(4000)).append('\n') }
                   if (sb.isEmpty()) return
                   if (breadcrumbFile.isFile) sb.append("\n【崩溃前最后一次生成】\n").append(breadcrumbFile.readText().take(2000))
-                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.3\n" + sb.toString()
+                  val report = "声魄 VoiceForge 诊断报告 v0.3.5.4\n" + sb.toString()
                   runCatching { File(diagDir, "last_report.txt").writeText(report) }
                   val tv = android.widget.TextView(this).apply {
                       text = report; setTextIsSelectable(true); textSize = 12f; setPadding(32, 24, 32, 24)
@@ -533,21 +533,46 @@ jobs:
                           return
                       }
           
-                      generationCancel.set(false)
-                      generationInProgress = true
-                      generationFuture = executor.submit {
-                          try {
-                              synthesizeOffline(clean, style ?: "深沉克制", intensity.coerceIn(0, 100), preview, voice)
-                          } catch (_: GenerationCancelledException) {
-                              js("window.onGenerationCancelled&&window.onGenerationCancelled()")
-                          } catch (t: Throwable) {
-                              if (!shuttingDown) js("window.onGenerationError&&window.onGenerationError(${q(friendly(t))})")
-                          } finally {
-                              generationInProgress = false
-                              generationFuture = null
-                              generationCancel.set(false)
+                      val start = {
+                          generationCancel.set(false)
+                          generationInProgress = true
+                          generationFuture = executor.submit {
+                              try {
+                                  synthesizeOffline(clean, style ?: "深沉克制", intensity.coerceIn(0, 100), preview, voice)
+                              } catch (_: GenerationCancelledException) {
+                                  js("window.onGenerationCancelled&&window.onGenerationCancelled()")
+                              } catch (t: Throwable) {
+                                  if (!shuttingDown) js("window.onGenerationError&&window.onGenerationError(${q(friendly(t))})")
+                              } finally {
+                                  generationInProgress = false
+                                  generationFuture = null
+                                  generationCancel.set(false)
+                              }
                           }
                       }
+
+                      // v0.3.5.4 软上限：参考音频 20–60 秒时先提醒，由用户决定是否继续。
+                      val refSeconds = runCatching {
+                          val info = inspectPcm16Wav(voiceRef)
+                          info.dataSize.toDouble() / 2.0 / info.sampleRate.coerceAtLeast(1)
+                      }.getOrDefault(0.0)
+                      if (refSeconds > softReferenceSeconds && refSeconds <= maxReferenceSeconds) {
+                          runOnUiThread {
+                              android.app.AlertDialog.Builder(this@MainActivity)
+                                  .setTitle("参考音频较长")
+                                  .setMessage(longReferenceWarning(refSeconds))
+                                  .setPositiveButton("继续生成") { _, _ -> start() }
+                                  .setNegativeButton("取消") { _, _ ->
+                                      js("window.onGenerationCancelled&&window.onGenerationCancelled()")
+                                  }
+                                  .setOnCancelListener {
+                                      js("window.onGenerationCancelled&&window.onGenerationCancelled()")
+                                  }
+                                  .show()
+                          }
+                          return
+                      }
+                      start()
                   }
           
                   @JavascriptInterface
@@ -714,8 +739,13 @@ jobs:
               // v0.3.5.3: ZipVoice 推理内存随参考音频长度急剧增长，且参考原文与音频不符时更严重。
               // 三星实测（v0.3.5.2 诊断报告）：参考 65.2 秒 + 原文 2 字 → 推理中被系统 SIGKILL。
               // 在调用原生推理前拦截，给出可操作的提示，而不是让进程被杀。
-              private val maxReferenceSeconds = 20.0
+              // v0.3.5.4：按用户要求改为软上限。20 秒以内直接生成；20–60 秒提醒后由用户决定；超过 60 秒才拒绝。
+              private val softReferenceSeconds = 20.0
+              private val maxReferenceSeconds = 60.0
               private val minReferenceSeconds = 3.0
+
+              private fun longReferenceWarning(seconds: Double): String =
+                  "参考音频较长（${String.format(Locale.US, "%.1f", seconds)} 秒），可能导致内存不足而闪退，建议 8–20 秒。如仍要继续，可以点「继续生成」。"
               private val minReferenceUnitsPerSecond = 1.5
 
               private fun referenceTextUnits(text: String): Int {
@@ -728,7 +758,7 @@ jobs:
                   val units = referenceTextUnits(referenceText)
                   return when {
                       seconds > maxReferenceSeconds ->
-                          "参考音频 ${String.format(Locale.US, "%.1f", seconds)} 秒，太长（上限 ${maxReferenceSeconds.toInt()} 秒），本机内存不足以完成推理。请剪成 8–20 秒的一段，并填写这一段的完整原文后重新导入。"
+                          "参考音频 ${String.format(Locale.US, "%.1f", seconds)} 秒，超过 ${maxReferenceSeconds.toInt()} 秒上限。请剪成 60 秒以内（建议 8–20 秒）的一段，并填写这一段的完整原文后重新导入。"
                       seconds < minReferenceSeconds ->
                           "参考音频只有 ${String.format(Locale.US, "%.1f", seconds)} 秒，太短。请使用 8–20 秒的参考音频。"
                       units < seconds * minReferenceUnitsPerSecond ->
@@ -1007,7 +1037,7 @@ jobs:
                                       raw.write((v shr 8) and 0xff)
                                   }
                                   totalSamples += n
-                                  if (totalSamples >= SAMPLE_RATE * 20L) {
+                                  if (totalSamples >= SAMPLE_RATE * 60L) {
                                       recording.set(false)
                                       runOnUiThread { runCatching { ar.stop() } }
                                   }
@@ -1047,7 +1077,7 @@ jobs:
                   val sampleCount = pcm.size / 2
                   val seconds = sampleCount.toDouble() / sampleRate
                   if (seconds < 7.0) return RecordingQuality(false, "录音太短。请完整读完参考句，建议 8–20 秒。", seconds, -99.0, 0.0, 100.0, 0.0)
-                  if (seconds > 20.5) return RecordingQuality(false, "录音太长，请控制在 20 秒以内。", seconds, -99.0, 0.0, 100.0, 0.0)
+                  if (seconds > 60.5) return RecordingQuality(false, "录音太长，请控制在 60 秒以内。", seconds, -99.0, 0.0, 100.0, 0.0)
           
                   var sumSq = 0.0
                   var peak = 0
@@ -1384,6 +1414,7 @@ jobs:
                               }
                               val importSeconds = info.dataSize.toDouble() / 2.0 / info.sampleRate.coerceAtLeast(1)
                               referenceProblem(importSeconds, rt)?.let { throw IllegalArgumentException(it) }
+                              if (importSeconds > softReferenceSeconds) toast(longReferenceWarning(importSeconds))
                               val profiles = loadVoiceProfiles(); profiles += VoiceProfile(id, n, rt, fileName); saveVoiceProfiles(profiles)
                               prefs.edit().putString("active_voice_id", id).apply()
                               js("window.onVoiceLibraryChanged&&window.onVoiceLibraryChanged()")
@@ -1717,7 +1748,7 @@ jobs:
           </head>
           <body>
           <div class="app">
-            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.3</small></div></div>
+            <div class="brand"><div class="logo">声</div><div><b>声魄 · VoiceForge</b><small>OFFLINE VOICE LIBRARY · v0.3.5.4</small></div></div>
           
             <section id="home" class="screen active">
               <div class="hero"><h1>任何参考音色，<br>都留在你的手机里。</h1><p>不用 API，不用电脑。录制自己的声音，或导入你指定的 WAV 和对应原文，再用当前选中的音色离线朗读。</p></div>
@@ -2107,17 +2138,17 @@ jobs:
           unzip -l "$APK" | grep -q 'assets/zipvoice/vocos_24khz.onnx'
           unzip -l "$APK" | grep -q 'lib/arm64-v8a/libsherpa-onnx-jni.so'
           mkdir -p dist
-          cp "$APK" dist/VoiceForge-v0.3.5.3-REF-GUARD.apk
-          sha256sum dist/VoiceForge-v0.3.5.3-REF-GUARD.apk | tee dist/SHA256.txt
-          ls -lh dist/VoiceForge-v0.3.5.3-REF-GUARD.apk
+          cp "$APK" dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk
+          sha256sum dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk | tee dist/SHA256.txt
+          ls -lh dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk
 
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceForge-v0.3.5.3-REF-GUARD-APK
+          name: VoiceForge-v0.3.5.4-REF-SOFT-LIMIT-APK
           path: |
-            dist/VoiceForge-v0.3.5.3-REF-GUARD.apk
+            dist/VoiceForge-v0.3.5.4-REF-SOFT-LIMIT.apk
             dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
