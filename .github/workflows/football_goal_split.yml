@@ -97,7 +97,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
-          pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q gdown opencv-python-headless transformers pillow
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q gdown opencv-python-headless "transformers==4.46.3" pillow
       - name: Download video read-only
         run: |
           set -euo pipefail
@@ -138,7 +138,7 @@ jobs:
               n += 1
           out.close(); print("done", n)
           PY
-          python3 det.py ${{ matrix.ss }} ${{ matrix.dur }}
+          python3 det.py ${{ matrix.ss }} ${{ matrix.dur }} 2> err.txt || { tail -c 1500 err.txt | tr '\n' ' ' | sed 's/^/::error::/'; echo; exit 1; }
           ls -l det.jsonl
       - name: Encrypt and push
         run: |
