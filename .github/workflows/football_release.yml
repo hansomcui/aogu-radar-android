@@ -1,4 +1,4 @@
-name: Publish football highlights
+name: Publish football highlights (zip)
 
 on:
   push:
@@ -25,10 +25,13 @@ jobs:
           echo "$(cat shots.sha256)  football-shots-2026-10-13.mp4" | sha256sum -c -
           mv dribbles.mp4 football-dribbles-2026-10-13.mp4
           ls -l *.mp4
+          zip -0 -q football-shots-2026-10-13.zip football-shots-2026-10-13.mp4
+          zip -0 -q football-dribbles-2026-10-13.zip football-dribbles-2026-10-13.mp4
+          ls -l *.zip
       - name: Create release
         run: |
           set -euo pipefail
           cd up
           gh release delete football-2026-10-13 -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
-          gh release create football-2026-10-13 football-shots-2026-10-13.mp4 football-dribbles-2026-10-13.mp4 -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Football highlights 2026-10-13" --notes "Shots (17 min) and dribbles (4 min), 720p H.264."
+          gh release create football-2026-10-13 football-shots-2026-10-13.mp4 football-dribbles-2026-10-13.mp4 football-shots-2026-10-13.zip football-dribbles-2026-10-13.zip -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Football highlights 2026-10-13" --notes "Shots (17 min) and dribbles (4 min), 720p H.264."
           gh release view football-2026-10-13 -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[]|.name+" "+(.size|tostring)'
