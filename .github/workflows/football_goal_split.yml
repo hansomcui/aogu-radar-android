@@ -1,0 +1,172 @@
+name: Football goal detection split
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/football_goal_split.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 0
+            dur: 300
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 300
+            dur: 300
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 600
+            dur: 300
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 900
+            dur: 300
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 1200
+            dur: 300
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 1500
+            dur: 300
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 1800
+            dur: 300
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+            ss: 2100
+            dur: 300
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+            ss: 0
+            dur: 300
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+            ss: 300
+            dur: 300
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+            ss: 600
+            dur: 300
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+            ss: 900
+            dur: 300
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+            ss: 1200
+            dur: 300
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+            ss: 1500
+            dur: 300
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+            ss: 1800
+            dur: 300
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+          pip install -q gdown opencv-python-headless torch torchvision --index-url https://download.pytorch.org/whl/cpu && pip install -q transformers pillow
+      - name: Download video read-only
+        run: |
+          set -euo pipefail
+          gdown --fuzzy "https://drive.google.com/file/d/${{ matrix.id }}/view" -O v.mp4 || curl -fL -o v.mp4 "https://drive.usercontent.google.com/download?id=${{ matrix.id }}&export=download&confirm=t"
+          test $(stat -c%s v.mp4) -eq ${{ matrix.size }}
+      - name: Detect goals at 2 fps
+        run: |
+          set -euo pipefail
+          cat > det.py <<'PY'
+          import cv2, sys, json, time, torch
+          from PIL import Image
+          from transformers import OwlViTProcessor, OwlViTForObjectDetection
+          torch.set_num_threads(4)
+          proc = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
+          model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32").eval()
+          Q = [["a soccer goal", "a football goal net", "a goalkeeper"]]
+          cap = cv2.VideoCapture("v.mp4")
+          SS = float(sys.argv[1]); END = SS + float(sys.argv[2])
+          cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, SS - 1.0) * 1000.0)
+          out = open("det.jsonl", "w")
+          step = 0.5; nxt = SS; n = 0
+          while True:
+              ok = cap.grab()
+              if not ok: break
+              t = cap.get(cv2.CAP_PROP_POS_MSEC)/1000.0
+              if t > END: break
+              if t + 1e-6 < nxt: continue
+              nxt += step
+              ok, fr = cap.retrieve()
+              if not ok: continue
+              img = Image.fromarray(cv2.cvtColor(cv2.resize(fr, (960, 540)), cv2.COLOR_BGR2RGB))
+              with torch.no_grad():
+                  inp = proc(text=Q, images=img, return_tensors="pt")
+                  o = model(**inp)
+              res = proc.post_process_object_detection(o, threshold=0.06, target_sizes=torch.tensor([[540, 960]]))[0]
+              dets = [[int(l), round(float(s),3)] + [round(float(v)*2,1) for v in b] for s, l, b in zip(res["scores"].tolist(), res["labels"].tolist(), res["boxes"].tolist())]
+              out.write(json.dumps({"t": round(t,3), "d": dets}) + "\n")
+              n += 1
+          out.close(); print("done", n)
+          PY
+          python3 det.py ${{ matrix.ss }} ${{ matrix.dur }}
+          ls -l det.jsonl
+      - name: Encrypt and push
+        run: |
+          set -euo pipefail
+          cat > pub.pem <<'EOF_PUB'
+          -----BEGIN PUBLIC KEY-----
+          MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA26GC7C/lhmLEK7kXgiP8
+          9Q8WYcA5AHWQbqJpZ9O2Wk7cUvISdp0jLpO+2QfazclOtpckiLlvmHAXT9m8EDB7
+          IY5ugxgrgrz4MydObXVqzNNmZfIuEUfkXES3srqSUiu6VBr3ZVWyyhByWWpSWU42
+          YJhgja3vwM+t2cfrfqSkSlEfVjDa7jjHTJXuByx8GOjQYK7P/J9GozmKNB/lNtRe
+          baDwMNf55GGTZoHnnh30peITWudofMM6IDFDiFwuGYC4dR24dUt93H5iJiFq+7tb
+          60mbK2kCiSXofWzF3C2vsNWQvMaDFIs/URjwd/16hRnP1K7P7ScDP+HrFHtedIfL
+          d1ksLh9yuEV1f1Tz2kXYCwLu2QCMyXa7LbJNOIDs9MOw6kqDdIs02lN8pnnBBABW
+          tq8o9fr3MqDnh1vPs+3k/m4xcUK6YsnDgtxjQMfhur/bbGxhNIt9rFfnBSeE3QkP
+          fuD+ExI9mTI9y0clUekwBcy59TrYTJX/JC1DLC4TmIC8I8Re5zI6EO2pmj2AL4yO
+          fchFBKmiK/do6nf991/cfca7ObnaGkbUf8A8PA5zxW0lvWG4mm/ky6mRzIT50Iue
+          eo3TeXjb4YKso4jfYvS3FxjlAbZIu79bcxxfb1dUijMUvXWxHbZUBaAeN0Owb2D8
+          5lcZR9+iUHFT7l6kGpiJJ20CAwEAAQ==
+          -----END PUBLIC KEY-----
+          EOF_PUB
+          sed -i 's/^ *//' pub.pem
+          mkdir -p enc
+          head -c 32 /dev/urandom | xxd -p -c 64 > key.hex
+          openssl pkeyutl -encrypt -pubin -inkey pub.pem -pkeyopt rsa_padding_mode:oaep -in key.hex -out enc/key.bin
+          gzip -9 det.jsonl
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:key.hex -in det.jsonl.gz -out enc/det.bin
+          rm -f key.hex
+          cd enc && git init -q -b goal-${{ matrix.name }}-${{ matrix.ss }}
+          git config user.name "voiceforge-bot"; git config user.email "actions@users.noreply.github.com"
+          git add . && git commit -qm "encrypted detections"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" goal-${{ matrix.name }}-${{ matrix.ss }}
