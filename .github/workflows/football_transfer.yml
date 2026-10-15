@@ -1,0 +1,71 @@
+name: Football video transfer (encrypted)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/football_transfer.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+          pip install -q gdown
+      - name: Download two videos read-only (public view links)
+        run: |
+          set -euo pipefail
+          mkdir -p src && cd src
+          dl() { gdown --fuzzy "https://drive.google.com/file/d/$1/view" -O "$2" || curl -fL -o "$2" "https://drive.usercontent.google.com/download?id=$1&export=download&confirm=t"; }
+          dl 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj A_2021.mp4
+          dl 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN B_2104.mp4
+          test $(stat -c%s A_2021.mp4) -eq 1529904639
+          test $(stat -c%s B_2104.mp4) -eq 1336780636
+          ls -l
+      - name: Probe and make 720p proxies
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          for f in A_2021 B_2104; do
+            ffprobe -v error -show_format -show_streams src/$f.mp4 > out/$f.probe.txt
+            ffmpeg -nostdin -loglevel error -y -i src/$f.mp4 -vf "scale=-2:720" -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 96k -movflags +faststart out/$f.720.mp4
+          done
+          ls -l out
+      - name: Encrypt, split and push to transfer branch
+        run: |
+          set -euo pipefail
+          cat > pub.pem <<'EOF_PUB'
+          -----BEGIN PUBLIC KEY-----
+          MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA26GC7C/lhmLEK7kXgiP8
+          9Q8WYcA5AHWQbqJpZ9O2Wk7cUvISdp0jLpO+2QfazclOtpckiLlvmHAXT9m8EDB7
+          IY5ugxgrgrz4MydObXVqzNNmZfIuEUfkXES3srqSUiu6VBr3ZVWyyhByWWpSWU42
+          YJhgja3vwM+t2cfrfqSkSlEfVjDa7jjHTJXuByx8GOjQYK7P/J9GozmKNB/lNtRe
+          baDwMNf55GGTZoHnnh30peITWudofMM6IDFDiFwuGYC4dR24dUt93H5iJiFq+7tb
+          60mbK2kCiSXofWzF3C2vsNWQvMaDFIs/URjwd/16hRnP1K7P7ScDP+HrFHtedIfL
+          d1ksLh9yuEV1f1Tz2kXYCwLu2QCMyXa7LbJNOIDs9MOw6kqDdIs02lN8pnnBBABW
+          tq8o9fr3MqDnh1vPs+3k/m4xcUK6YsnDgtxjQMfhur/bbGxhNIt9rFfnBSeE3QkP
+          fuD+ExI9mTI9y0clUekwBcy59TrYTJX/JC1DLC4TmIC8I8Re5zI6EO2pmj2AL4yO
+          fchFBKmiK/do6nf991/cfca7ObnaGkbUf8A8PA5zxW0lvWG4mm/ky6mRzIT50Iue
+          eo3TeXjb4YKso4jfYvS3FxjlAbZIu79bcxxfb1dUijMUvXWxHbZUBaAeN0Owb2D8
+          5lcZR9+iUHFT7l6kGpiJJ20CAwEAAQ==
+          -----END PUBLIC KEY-----
+          EOF_PUB
+          sed -i 's/^ *//' pub.pem
+          mkdir -p enc
+          head -c 32 /dev/urandom | xxd -p -c 64 > key.hex
+          openssl pkeyutl -encrypt -pubin -inkey pub.pem -pkeyopt rsa_padding_mode:oaep -in key.hex -out enc/key.bin
+          tar -C out -cf - . | openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:key.hex | split -b 90m -d -a 3 - enc/payload.
+          rm -f key.hex
+          ls -l enc
+          cd enc
+          git init -q -b xfer-football
+          git config user.name "voiceforge-bot"; git config user.email "actions@users.noreply.github.com"
+          git add . && git commit -qm "encrypted transfer"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" xfer-football
