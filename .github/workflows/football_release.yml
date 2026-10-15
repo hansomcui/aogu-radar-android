@@ -1,0 +1,34 @@
+name: Publish football highlights
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/football_release.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch parts
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 -b football-upload "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" up
+          cd up
+          cat shots.part.* > football-shots-2026-10-13.mp4
+          echo "$(cat shots.sha256)  football-shots-2026-10-13.mp4" | sha256sum -c -
+          mv dribbles.mp4 football-dribbles-2026-10-13.mp4
+          ls -l *.mp4
+      - name: Create release
+        run: |
+          set -euo pipefail
+          cd up
+          gh release delete football-2026-10-13 -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create football-2026-10-13 football-shots-2026-10-13.mp4 football-dribbles-2026-10-13.mp4 -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Football highlights 2026-10-13" --notes "Shots (17 min) and dribbles (4 min), 720p H.264."
+          gh release view football-2026-10-13 -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[]|.name+" "+(.size|tostring)'
