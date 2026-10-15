@@ -1,17 +1,49 @@
-name: Football goal detection split
+name: Football goal detection v2
 
 on:
   workflow_dispatch:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/football_goal_split.yml"
+      - ".github/workflows/football_goal_v2.yml"
 
 permissions:
   contents: write
 
 jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: A_2021
+            id: 1bHMNMsWMJkOq0iXOi1hbgCCTJuZJQmwj
+            size: 1529904639
+          - name: B_2104
+            id: 1RB6uh6EvUf7-6qEW0u0RqMXvvO7weBpN
+            size: 1336780636
+    steps:
+      - name: Download once (retry while Drive quota recovers)
+        run: |
+          pip install -q gdown
+          for i in $(seq 1 30); do
+            rm -f v.mp4
+            gdown --fuzzy "https://drive.google.com/file/d/${{ matrix.id }}/view" -O v.mp4 >/dev/null 2>&1 || curl -sfL -o v.mp4 "https://drive.usercontent.google.com/download?id=${{ matrix.id }}&export=download&confirm=t" || true
+            if [ -f v.mp4 ] && [ $(stat -c%s v.mp4) -eq ${{ matrix.size }} ]; then echo "ok on attempt $i"; exit 0; fi
+            echo "::warning::attempt $i failed, waiting 10 min"; sleep 600
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: src-${{ matrix.name }}
+          path: v.mp4
+          retention-days: 1
+          compression-level: 0
+
   detect:
+    needs: fetch
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -97,12 +129,10 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
-          pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q gdown opencv-python-headless "transformers==4.46.3" pillow
-      - name: Download video read-only
-        run: |
-          set -euo pipefail
-          gdown --fuzzy "https://drive.google.com/file/d/${{ matrix.id }}/view" -O v.mp4 || curl -fL -o v.mp4 "https://drive.usercontent.google.com/download?id=${{ matrix.id }}&export=download&confirm=t"
-          test $(stat -c%s v.mp4) -eq ${{ matrix.size }}
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu && pip install -q opencv-python-headless "transformers==4.46.3" pillow
+      - uses: actions/download-artifact@v4
+        with:
+          name: src-${{ matrix.name }}
       - name: Detect goals at 2 fps
         run: |
           set -euo pipefail
@@ -166,7 +196,7 @@ jobs:
           gzip -9 det.jsonl
           openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:key.hex -in det.jsonl.gz -out enc/det.bin
           rm -f key.hex
-          cd enc && git init -q -b goal-${{ matrix.name }}-${{ matrix.ss }}
+          cd enc && git init -q -b goal2-${{ matrix.name }}-${{ matrix.ss }}
           git config user.name "voiceforge-bot"; git config user.email "actions@users.noreply.github.com"
           git add . && git commit -qm "encrypted detections"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" goal-${{ matrix.name }}-${{ matrix.ss }}
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" goal2-${{ matrix.name }}-${{ matrix.ss }}
