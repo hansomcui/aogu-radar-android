@@ -1,0 +1,26 @@
+{
+ "E_tw4": {
+  "name": "E-tone v0.4 台湾普通话",
+  "text_file": "text_E_tw.txt",
+  "prompt_sid": 47,
+  "prompt_sentences": [
+   "今天的阳光已经悄悄爬上窗台了。",
+   "你昨天交代的事情，我都放在心上。"
+  ],
+  "speed": 0.95,
+  "num_steps": 8,
+  "candidates": 3,
+  "pause_ms": {
+   "，": 320,
+   "；": 450,
+   "。": 650,
+   "？": 700,
+   "！": 650
+  },
+  "treble_db": -6,
+  "lowpass_hz": 9000,
+  "ref_rms": 0.1364,
+  "gain": 0.81,
+  "prompt_length_scale": 1.35
+ }
+}

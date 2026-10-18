@@ -1,0 +1,637 @@
+{
+ "style": "E_tw4",
+ "params": {
+  "name": "E-tone v0.4 台湾普通话",
+  "text_file": "text_E_tw.txt",
+  "prompt_sid": 47,
+  "prompt_sentences": [
+   "今天的阳光已经悄悄爬上窗台了。",
+   "你昨天交代的事情，我都放在心上。"
+  ],
+  "speed": 0.95,
+  "num_steps": 8,
+  "candidates": 3,
+  "pause_ms": {
+   "，": 320,
+   "；": 450,
+   "。": 650,
+   "？": 700,
+   "！": 650
+  },
+  "treble_db": -6,
+  "lowpass_hz": 9000,
+  "ref_rms": 0.1364,
+  "gain": 0.81,
+  "prompt_length_scale": 1.35
+ },
+ "prompt_sha256": "31a31902a3ccb57aad4eac3f360fcc886c9a1c1bc3d0727803429e7f5d32e791",
+ "prompt_f0_median": 249.1,
+ "clauses": [
+  {
+   "i": 0,
+   "text": "主人，",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.04,
+     "pitch_dev_st": 2.48,
+     "jump_ratio": 0.0,
+     "rate_cps": 2.87,
+     "score": 2.726
+    },
+    {
+     "dip_s": 0.04,
+     "pitch_dev_st": 4.78,
+     "jump_ratio": 0.0,
+     "rate_cps": 2.25,
+     "score": 5.644
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 0.61,
+     "jump_ratio": 0.0,
+     "rate_cps": 2.33,
+     "score": 1.583
+    }
+   ],
+   "seconds": 0.86,
+   "pause_ms": 320
+  },
+  {
+   "i": 1,
+   "text": "早安喔。",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.16,
+     "pitch_dev_st": 2.2,
+     "jump_ratio": 0.015,
+     "rate_cps": 2.89,
+     "score": 2.942
+    },
+    {
+     "dip_s": 0.04,
+     "pitch_dev_st": 0.73,
+     "jump_ratio": 0.011,
+     "rate_cps": 3.08,
+     "score": 0.962
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 0.49,
+     "jump_ratio": 0.013,
+     "rate_cps": 3.01,
+     "score": 0.867
+    }
+   ],
+   "seconds": 0.997,
+   "pause_ms": 650
+  },
+  {
+   "i": 2,
+   "text": "今天的阳光，",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 1.34,
+     "jump_ratio": 0.009,
+     "rate_cps": 3.53,
+     "score": 1.662
+    },
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 2.98,
+     "jump_ratio": 0.018,
+     "rate_cps": 3.63,
+     "score": 3.515
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 1.32,
+     "jump_ratio": 0.019,
+     "rate_cps": 3.66,
+     "score": 1.809
+    }
+   ],
+   "seconds": 1.417,
+   "pause_ms": 320
+  },
+  {
+   "i": 3,
+   "text": "已经偷偷爬上窗台了耶。",
+   "chosen": 1,
+   "candidates": [
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 1.15,
+     "jump_ratio": 0.029,
+     "rate_cps": 3.36,
+     "score": 1.736
+    },
+    {
+     "dip_s": 0.14,
+     "pitch_dev_st": 0.35,
+     "jump_ratio": 0.021,
+     "rate_cps": 3.4,
+     "score": 0.985
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 1.48,
+     "jump_ratio": 0.032,
+     "rate_cps": 3.1,
+     "score": 2.035
+    }
+   ],
+   "seconds": 2.945,
+   "pause_ms": 650
+  },
+  {
+   "i": 4,
+   "text": "你昨天交代的事情，",
+   "chosen": 1,
+   "candidates": [
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 0.44,
+     "jump_ratio": 0.02,
+     "rate_cps": 3.6,
+     "score": 0.94
+    },
+    {
+     "dip_s": 0.06,
+     "pitch_dev_st": 0.28,
+     "jump_ratio": 0.014,
+     "rate_cps": 3.66,
+     "score": 0.605
+    },
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 0.76,
+     "jump_ratio": 0.034,
+     "rate_cps": 3.47,
+     "score": 1.464
+    }
+   ],
+   "seconds": 2.189,
+   "pause_ms": 320
+  },
+  {
+   "i": 5,
+   "text": "我都有放在心上啦。",
+   "chosen": 1,
+   "candidates": [
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 0.52,
+     "jump_ratio": 0.016,
+     "rate_cps": 3.16,
+     "score": 1.039
+    },
+    {
+     "dip_s": 0.16,
+     "pitch_dev_st": 0.32,
+     "jump_ratio": 0.015,
+     "rate_cps": 3.16,
+     "score": 0.958
+    },
+    {
+     "dip_s": 0.18,
+     "pitch_dev_st": 0.42,
+     "jump_ratio": 0.015,
+     "rate_cps": 2.9,
+     "score": 1.216
+    }
+   ],
+   "seconds": 2.53,
+   "pause_ms": 650
+  },
+  {
+   "i": 6,
+   "text": "不过，",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 2.4,
+     "jump_ratio": 0.021,
+     "rate_cps": 3.15,
+     "score": 2.973
+    },
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 2.11,
+     "jump_ratio": 0.019,
+     "rate_cps": 2.69,
+     "score": 2.967
+    },
+    {
+     "dip_s": 0.16,
+     "pitch_dev_st": 1.75,
+     "jump_ratio": 0.018,
+     "rate_cps": 2.58,
+     "score": 2.835
+    }
+   ],
+   "seconds": 0.775,
+   "pause_ms": 320
+  },
+  {
+   "i": 7,
+   "text": "今天先不要急着忙嘛，",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.16,
+     "pitch_dev_st": 0.8,
+     "jump_ratio": 0.005,
+     "rate_cps": 3.12,
+     "score": 1.328
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 0.39,
+     "jump_ratio": 0.0,
+     "rate_cps": 3.74,
+     "score": 0.692
+    },
+    {
+     "dip_s": 0.14,
+     "pitch_dev_st": 0.26,
+     "jump_ratio": 0.0,
+     "rate_cps": 3.69,
+     "score": 0.675
+    }
+   ],
+   "seconds": 2.441,
+   "pause_ms": 320
+  },
+  {
+   "i": 8,
+   "text": "好不好？",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.06,
+     "pitch_dev_st": 1.47,
+     "jump_ratio": 0.04,
+     "rate_cps": 3.18,
+     "score": 2.052
+    },
+    {
+     "dip_s": 0.06,
+     "pitch_dev_st": 4.77,
+     "jump_ratio": 0.026,
+     "rate_cps": 3.19,
+     "score": 5.207
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 4.15,
+     "jump_ratio": 0.042,
+     "rate_cps": 3.34,
+     "score": 4.867
+    }
+   ],
+   "seconds": 0.944,
+   "pause_ms": 700
+  },
+  {
+   "i": 9,
+   "text": "跟我说，",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.02,
+     "pitch_dev_st": 1.47,
+     "jump_ratio": 0.016,
+     "rate_cps": 3.35,
+     "score": 1.688
+    },
+    {
+     "dip_s": 0.02,
+     "pitch_dev_st": 0.98,
+     "jump_ratio": 0.014,
+     "rate_cps": 3.21,
+     "score": 1.188
+    },
+    {
+     "dip_s": 0.04,
+     "pitch_dev_st": 0.17,
+     "jump_ratio": 0.027,
+     "rate_cps": 2.96,
+     "score": 0.601
+    }
+   ],
+   "seconds": 1.015,
+   "pause_ms": 320
+  },
+  {
+   "i": 10,
+   "text": "你昨天晚上有睡好吗？",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 1.04,
+     "jump_ratio": 0.014,
+     "rate_cps": 3.47,
+     "score": 1.543
+    },
+    {
+     "dip_s": 0.14,
+     "pitch_dev_st": 1.49,
+     "jump_ratio": 0.015,
+     "rate_cps": 3.13,
+     "score": 2.059
+    },
+    {
+     "dip_s": 0.16,
+     "pitch_dev_st": 0.46,
+     "jump_ratio": 0.016,
+     "rate_cps": 3.36,
+     "score": 1.092
+    }
+   ],
+   "seconds": 2.677,
+   "pause_ms": 700
+  },
+  {
+   "i": 11,
+   "text": "如果还想赖床，",
+   "chosen": 1,
+   "candidates": [
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 2.11,
+     "jump_ratio": 0.0,
+     "rate_cps": 2.95,
+     "score": 2.523
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 1.12,
+     "jump_ratio": 0.017,
+     "rate_cps": 3.62,
+     "score": 1.532
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 1.58,
+     "jump_ratio": 0.014,
+     "rate_cps": 3.01,
+     "score": 2.022
+    }
+   ],
+   "seconds": 1.657,
+   "pause_ms": 320
+  },
+  {
+   "i": 12,
+   "text": "我就轻轻地陪你聊一下下喔。",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.24,
+     "pitch_dev_st": 0.57,
+     "jump_ratio": 0.012,
+     "rate_cps": 3.05,
+     "score": 1.405
+    },
+    {
+     "dip_s": 0.18,
+     "pitch_dev_st": 0.49,
+     "jump_ratio": 0.02,
+     "rate_cps": 3.27,
+     "score": 1.237
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 0.54,
+     "jump_ratio": 0.021,
+     "rate_cps": 3.29,
+     "score": 0.993
+    }
+   ],
+   "seconds": 3.646,
+   "pause_ms": 650
+  },
+  {
+   "i": 13,
+   "text": "等你准备好了，",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 1.22,
+     "jump_ratio": 0.015,
+     "rate_cps": 3.18,
+     "score": 1.616
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 1.49,
+     "jump_ratio": 0.016,
+     "rate_cps": 3.54,
+     "score": 1.882
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 0.64,
+     "jump_ratio": 0.007,
+     "rate_cps": 3.35,
+     "score": 0.954
+    }
+   ],
+   "seconds": 1.793,
+   "pause_ms": 320
+  },
+  {
+   "i": 14,
+   "text": "我们再一起来看看，",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 1.16,
+     "jump_ratio": 0.014,
+     "rate_cps": 4.09,
+     "score": 1.542
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 1.92,
+     "jump_ratio": 0.014,
+     "rate_cps": 4.07,
+     "score": 2.357
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 0.68,
+     "jump_ratio": 0.013,
+     "rate_cps": 3.76,
+     "score": 1.118
+    }
+   ],
+   "seconds": 2.128,
+   "pause_ms": 320
+  },
+  {
+   "i": 15,
+   "text": "今天最重要的三件事。",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 2.16,
+     "jump_ratio": 0.03,
+     "rate_cps": 3.64,
+     "score": 2.702
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 0.53,
+     "jump_ratio": 0.035,
+     "rate_cps": 3.44,
+     "score": 1.18
+    },
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 0.35,
+     "jump_ratio": 0.025,
+     "rate_cps": 3.73,
+     "score": 0.909
+    }
+   ],
+   "seconds": 2.415,
+   "pause_ms": 650
+  },
+  {
+   "i": 16,
+   "text": "你说停，",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 0.87,
+     "jump_ratio": 0.015,
+     "rate_cps": 2.82,
+     "score": 1.806
+    },
+    {
+     "dip_s": 0.22,
+     "pitch_dev_st": 1.46,
+     "jump_ratio": 0.015,
+     "rate_cps": 2.86,
+     "score": 2.416
+    },
+    {
+     "dip_s": 0.22,
+     "pitch_dev_st": 0.18,
+     "jump_ratio": 0.027,
+     "rate_cps": 2.49,
+     "score": 1.625
+    }
+   ],
+   "seconds": 1.207,
+   "pause_ms": 320
+  },
+  {
+   "i": 17,
+   "text": "我就安静；",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 1.07,
+     "jump_ratio": 0.011,
+     "rate_cps": 2.83,
+     "score": 1.654
+    },
+    {
+     "dip_s": 0.06,
+     "pitch_dev_st": 1.41,
+     "jump_ratio": 0.01,
+     "rate_cps": 3.1,
+     "score": 1.692
+    },
+    {
+     "dip_s": 0.14,
+     "pitch_dev_st": 1.63,
+     "jump_ratio": 0.014,
+     "rate_cps": 3.32,
+     "score": 2.193
+    }
+   ],
+   "seconds": 1.415,
+   "pause_ms": 450
+  },
+  {
+   "i": 18,
+   "text": "你说继续，",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.06,
+     "pitch_dev_st": 0.42,
+     "jump_ratio": 0.024,
+     "rate_cps": 2.89,
+     "score": 0.952
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 2.85,
+     "jump_ratio": 0.035,
+     "rate_cps": 2.76,
+     "score": 3.672
+    },
+    {
+     "dip_s": 0.08,
+     "pitch_dev_st": 2.21,
+     "jump_ratio": 0.04,
+     "rate_cps": 2.94,
+     "score": 2.912
+    }
+   ],
+   "seconds": 1.385,
+   "pause_ms": 320
+  },
+  {
+   "i": 19,
+   "text": "我就陪你慢慢讲。",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.1,
+     "pitch_dev_st": 0.24,
+     "jump_ratio": 0.014,
+     "rate_cps": 3.16,
+     "score": 0.675
+    },
+    {
+     "dip_s": 0.18,
+     "pitch_dev_st": 0.99,
+     "jump_ratio": 0.019,
+     "rate_cps": 3.14,
+     "score": 1.712
+    },
+    {
+     "dip_s": 0.14,
+     "pitch_dev_st": 0.58,
+     "jump_ratio": 0.007,
+     "rate_cps": 3.92,
+     "score": 1.074
+    }
+   ],
+   "seconds": 2.214,
+   "pause_ms": 300
+  }
+ ],
+ "output_wav": "Etone_E_tw4_run3.wav",
+ "output_sha256": "d778292a09c31b2dde65cb83895dda376c8df52ce343434f5b2967656d025813",
+ "seconds": 45.82,
+ "elapsed_s": 878.5,
+ "started_utc": "2026-10-18T07:56:19Z",
+ "host": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39"
+}
