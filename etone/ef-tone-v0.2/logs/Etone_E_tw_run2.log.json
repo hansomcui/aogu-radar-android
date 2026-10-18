@@ -1,0 +1,91 @@
+{
+ "style": "E_tw",
+ "params": {
+  "name": "E-tone基础版（由A：轻15%、柔30%、慢15%、嗲、台湾腔）",
+  "base": "A",
+  "text_file": "text_E_tw.txt",
+  "sid": 47,
+  "length_scale": 1.17,
+  "semitones": 1.5,
+  "range": 0.85,
+  "final_rise_st": 2.5,
+  "breath_db": -30,
+  "sent_pause_ms": 440,
+  "tilt_db": -1.0,
+  "gain": 0.85,
+  "final_stretch": 1.35,
+  "ref_rms": 0.1364
+ },
+ "sentences": [
+  {
+   "i": 0,
+   "text": "主人，早安喔。",
+   "raw_sha256": "4f85b7c1d094e3c8a882022e780d52bd09f3ae5204211bcbcd9bb87c788abec1",
+   "seconds": 1.537,
+   "pause_ms": 440
+  },
+  {
+   "i": 1,
+   "text": "今天的阳光，已经偷偷爬上窗台了耶。",
+   "raw_sha256": "06f58969016363180b7312b5f0680d5fbb9dd368bd6cc9993dcd6d91eb116d8e",
+   "seconds": 4.064,
+   "pause_ms": 440
+  },
+  {
+   "i": 2,
+   "text": "你昨天交代的事情，我都有放在心上啦。",
+   "raw_sha256": "369a8a2939bcf47bfc20e746f65f817e54da1db087991696d7087fb40c68de3e",
+   "seconds": 4.479,
+   "pause_ms": 440
+  },
+  {
+   "i": 3,
+   "text": "不过，今天先不要急着忙嘛，好不好？",
+   "raw_sha256": "d145384a6392e7695e92495f9e36dfc4cb0397090845fab668a516984771f51e",
+   "seconds": 4.668,
+   "pause_ms": 440
+  },
+  {
+   "i": 4,
+   "text": "跟我说，你昨天晚上有睡好吗？",
+   "raw_sha256": "ee9813d9346cfbb797ca92b3a234c385ace6df039746a605bfa14cd1b9188bb7",
+   "seconds": 3.497,
+   "pause_ms": 440
+  },
+  {
+   "i": 5,
+   "text": "如果还想赖床，我就轻轻地陪你聊一下下喔。",
+   "raw_sha256": "5632649c10b3bf56459820c1b6ea70e4c649074b4fd05e2df2599db4fdaefec3",
+   "seconds": 4.854,
+   "pause_ms": 440
+  },
+  {
+   "i": 6,
+   "text": "等你准备好了，我们再一起来看看，今天最重要的三件事。",
+   "raw_sha256": "771c783fe472d063b7e9c24eefc5f771ed1468b7203f3250f662c2103c65f84d",
+   "seconds": 6.438,
+   "pause_ms": 440
+  },
+  {
+   "i": 7,
+   "text": "你说停，我就安静；",
+   "raw_sha256": "55030a5d73ac83ca006b446c165786a6f7d3facac3f931e8f2be218e9d977a0c",
+   "seconds": 2.688,
+   "pause_ms": 308
+  },
+  {
+   "i": 8,
+   "text": "你说继续，我就陪你慢慢讲。",
+   "raw_sha256": "cad8f42116d994ce945e8c7df4518d91a6f98a644ba26ac065b4bc0496a7fd1d",
+   "seconds": 3.396,
+   "pause_ms": 440
+  }
+ ],
+ "output_wav": "Etone_E_tw_run2.wav",
+ "output_sha256": "dc2508db3e05873c6caad746f25263b0c5fd27d8a0f98f34e236c2458e4d047d",
+ "seconds": 39.697,
+ "peak_dbfs": -1.01,
+ "elapsed_s": 77.9,
+ "started_utc": "2026-10-18T04:55:24Z",
+ "host": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39"
+}

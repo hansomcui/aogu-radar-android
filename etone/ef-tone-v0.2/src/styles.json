@@ -1,0 +1,89 @@
+{
+ "A": {
+  "name": "清亮温柔",
+  "sid": 47,
+  "length_scale": 1.05,
+  "semitones": 0.5,
+  "range": 1.0,
+  "final_rise_st": 0.0,
+  "breath_db": -60,
+  "sent_pause_ms": 380,
+  "tilt_db": 2.0
+ },
+ "B": {
+  "name": "轻气声",
+  "sid": 46,
+  "length_scale": 1.12,
+  "semitones": -0.5,
+  "range": 0.9,
+  "final_rise_st": 0.0,
+  "breath_db": -24,
+  "sent_pause_ms": 520,
+  "tilt_db": -1.5
+ },
+ "C": {
+  "name": "甜美俏皮",
+  "sid": 48,
+  "length_scale": 1.06,
+  "semitones": 0.0,
+  "range": 1.25,
+  "final_rise_st": 2.0,
+  "breath_db": -60,
+  "sent_pause_ms": 300,
+  "tilt_db": 1.0
+ },
+ "D": {
+  "name": "成熟自然",
+  "sid": 45,
+  "length_scale": 1.08,
+  "semitones": -1.5,
+  "range": 0.85,
+  "final_rise_st": 0.0,
+  "breath_db": -60,
+  "sent_pause_ms": 450,
+  "tilt_db": 0.0
+ },
+ "E": {
+  "name": "目标E-tone轻盈亲昵",
+  "sid": 47,
+  "length_scale": 1.2,
+  "semitones": 1.6,
+  "range": 1.15,
+  "final_rise_st": 1.0,
+  "breath_db": -30,
+  "sent_pause_ms": 480,
+  "tilt_db": 1.0
+ },
+ "E_tw": {
+  "name": "E-tone基础版（由A：轻15%、柔30%、慢15%、嗲、台湾腔）",
+  "base": "A",
+  "text_file": "text_E_tw.txt",
+  "sid": 47,
+  "length_scale": 1.17,
+  "semitones": 1.5,
+  "range": 0.85,
+  "final_rise_st": 2.5,
+  "breath_db": -30,
+  "sent_pause_ms": 440,
+  "tilt_db": -1.0,
+  "gain": 0.85,
+  "final_stretch": 1.35,
+  "ref_rms": 0.1364
+ },
+ "F_xa": {
+  "name": "F-tone基础版（由B：柔20%、轻5%、慢5%、关中西安话遣词断句）",
+  "base": "B",
+  "text_file": "text_F_xa.txt",
+  "sid": 46,
+  "length_scale": 1.13,
+  "semitones": -0.5,
+  "range": 0.81,
+  "final_rise_st": 0.0,
+  "breath_db": -24,
+  "sent_pause_ms": 546,
+  "tilt_db": -2.5,
+  "gain": 0.95,
+  "final_stretch": 1.1,
+  "ref_rms": 0.1122
+ }
+}

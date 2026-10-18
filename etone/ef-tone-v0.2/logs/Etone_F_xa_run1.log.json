@@ -1,0 +1,91 @@
+{
+ "style": "F_xa",
+ "params": {
+  "name": "F-tone基础版（由B：柔20%、轻5%、慢5%、关中西安话遣词断句）",
+  "base": "B",
+  "text_file": "text_F_xa.txt",
+  "sid": 46,
+  "length_scale": 1.13,
+  "semitones": -0.5,
+  "range": 0.81,
+  "final_rise_st": 0.0,
+  "breath_db": -24,
+  "sent_pause_ms": 546,
+  "tilt_db": -2.5,
+  "gain": 0.95,
+  "final_stretch": 1.1,
+  "ref_rms": 0.1122
+ },
+ "sentences": [
+  {
+   "i": 0,
+   "text": "主人，早上好么。",
+   "raw_sha256": "584cdfe8ed6920d21b9b7155cf369a036a930620daee9c764678d8a67a0ffa3d",
+   "seconds": 2.125,
+   "pause_ms": 546
+  },
+  {
+   "i": 1,
+   "text": "今儿个的日头，已经悄悄爬到窗台上咧。",
+   "raw_sha256": "a312ba88a8785903eeb4100a0cc8ab59bd0aac76f1ffff4dd7aacba7fbf4c6c8",
+   "seconds": 4.116,
+   "pause_ms": 546
+  },
+  {
+   "i": 2,
+   "text": "你夜个交代的事，额都记在心上咧。",
+   "raw_sha256": "46cbf316644f310e2759f51fd1fbe6f2e044c6285235b3e94e481137af96030b",
+   "seconds": 3.817,
+   "pause_ms": 546
+  },
+  {
+   "i": 3,
+   "text": "不过，今儿先嫑急着忙，好不好？",
+   "raw_sha256": "b39dbaa1e837518229783537ad22765075b8ee3710d9e28da29f4085fc8eca4b",
+   "seconds": 3.613,
+   "pause_ms": 546
+  },
+  {
+   "i": 4,
+   "text": "给额说，你夜黑睡得咋样？",
+   "raw_sha256": "d515722695ac380f063a3ad7a876b2cdcdd4d2896ce0c145611375ad0d9735c6",
+   "seconds": 2.863,
+   "pause_ms": 546
+  },
+  {
+   "i": 5,
+   "text": "要是还想赖床，额就轻轻陪你谝一会儿。",
+   "raw_sha256": "6e6c948960bc9a115bb2bf514185a1ce2a34761ba0d6bfe6146438bccb431c93",
+   "seconds": 4.113,
+   "pause_ms": 546
+  },
+  {
+   "i": 6,
+   "text": "等你收拾停当了，咱再一搭看看，今儿最要紧的三件事。",
+   "raw_sha256": "15fa3fde646c5559e7665a35200dd476b074bda0a06320b2f88bc43e7cd390e3",
+   "seconds": 6.056,
+   "pause_ms": 546
+  },
+  {
+   "i": 7,
+   "text": "你说停，额就不言传；",
+   "raw_sha256": "a50bade429160a131ee8f61417d51d67c4131f8f8a4bdb72b86a625776aafd36",
+   "seconds": 2.912,
+   "pause_ms": 382
+  },
+  {
+   "i": 8,
+   "text": "你说继续，额就陪你慢慢谝。",
+   "raw_sha256": "e1ea0792b681dc7e43b6589519e797227e957f7f7a23d9133bbe04713d89bc2a",
+   "seconds": 3.436,
+   "pause_ms": 546
+  }
+ ],
+ "output_wav": "Etone_F_xa_run1.wav",
+ "output_sha256": "f5b177eb4ce329be49476b772abac4389cc6223ab8601b03d4bb3ca407607dc7",
+ "seconds": 38.051,
+ "peak_dbfs": -3.11,
+ "elapsed_s": 83.0,
+ "started_utc": "2026-10-18T04:56:42Z",
+ "host": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39"
+}

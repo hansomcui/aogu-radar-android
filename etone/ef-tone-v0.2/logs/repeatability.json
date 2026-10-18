@@ -1,0 +1,28 @@
+{
+ "E_tw": {
+  "dur_run1": 39.701,
+  "dur_run2": 39.697,
+  "dur_diff_s": 0.004,
+  "f0_median_hz": [
+   283.3,
+   283.6
+  ],
+  "f0_diff_semitones": 0.016,
+  "max_sentence_dur_diff_s": 0.003,
+  "avg_spectrum_corr": 0.9999,
+  "bit_identical": false
+ },
+ "F_xa": {
+  "dur_run1": 38.051,
+  "dur_run2": 38.042,
+  "dur_diff_s": 0.009,
+  "f0_median_hz": [
+   233.4,
+   233.1
+  ],
+  "f0_diff_semitones": 0.026,
+  "max_sentence_dur_diff_s": 0.01,
+  "avg_spectrum_corr": 0.9999,
+  "bit_identical": false
+ }
+}
