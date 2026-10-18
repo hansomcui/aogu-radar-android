@@ -1,0 +1,54 @@
+{
+ "style": "E_tw3",
+ "params": {
+  "name": "E-tone v0.3 台湾普通话",
+  "text_file": "text_E_tw.txt",
+  "prompt_sid": 47,
+  "prompt_sentences": [
+   "今天的阳光已经悄悄爬上窗台了。",
+   "你昨天交代的事情，我都放在心上。"
+  ],
+  "speed": 0.57,
+  "num_steps": 8,
+  "chunk_chars": 24,
+  "chunk_pause_ms": 420,
+  "treble_db": -6,
+  "lowpass_hz": 9000,
+  "ref_rms": 0.1364,
+  "gain": 0.81
+ },
+ "prompt_wav_sha256": "31d200aac8cd3267213e94b3e3fb680ec0705435ca6381b2d3425462120c94be",
+ "chunks": [
+  {
+   "i": 0,
+   "text": "主人，早安喔。今天的阳光，已经偷偷爬上窗台了耶。",
+   "seconds": 5.802
+  },
+  {
+   "i": 1,
+   "text": "你昨天交代的事情，我都有放在心上啦。不过，今天先不要急着忙嘛，好不好？",
+   "seconds": 10.921
+  },
+  {
+   "i": 2,
+   "text": "跟我说，你昨天晚上有睡好吗？如果还想赖床，我就轻轻地陪你聊一下下喔。",
+   "seconds": 8.97
+  },
+  {
+   "i": 3,
+   "text": "等你准备好了，我们再一起来看看，今天最重要的三件事。",
+   "seconds": 7.546
+  },
+  {
+   "i": 4,
+   "text": "你说停，我就安静；你说继续，我就陪你慢慢讲。",
+   "seconds": 5.759
+  }
+ ],
+ "output_wav": "Etone_E_tw3_run2.wav",
+ "output_sha256": "52ad4d0e105d65d8b5197fb3b69191b65fa139684af97ab563adcbb0624672b1",
+ "seconds": 41.348,
+ "elapsed_s": 136.1,
+ "started_utc": "2026-10-18T07:14:23Z",
+ "host": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39"
+}

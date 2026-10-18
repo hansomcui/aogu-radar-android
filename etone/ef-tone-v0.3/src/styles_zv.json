@@ -1,0 +1,36 @@
+{
+ "E_tw3": {
+  "name": "E-tone v0.3 台湾普通话",
+  "text_file": "text_E_tw.txt",
+  "prompt_sid": 47,
+  "prompt_sentences": [
+   "今天的阳光已经悄悄爬上窗台了。",
+   "你昨天交代的事情，我都放在心上。"
+  ],
+  "speed": 0.57,
+  "num_steps": 8,
+  "chunk_chars": 24,
+  "chunk_pause_ms": 420,
+  "treble_db": -6,
+  "lowpass_hz": 9000,
+  "ref_rms": 0.1364,
+  "gain": 0.81
+ },
+ "F_xa3": {
+  "name": "F-tone v0.3 关中西安味普通话",
+  "text_file": "text_F_xa.txt",
+  "prompt_sid": 46,
+  "prompt_sentences": [
+   "今天的阳光已经悄悄爬上窗台了。",
+   "你昨天交代的事情，我都放在心上。"
+  ],
+  "speed": 0.62,
+  "num_steps": 8,
+  "chunk_chars": 24,
+  "chunk_pause_ms": 500,
+  "treble_db": -4,
+  "lowpass_hz": 10000,
+  "ref_rms": 0.1122,
+  "gain": 0.95
+ }
+}

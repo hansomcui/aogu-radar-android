@@ -1,0 +1,54 @@
+{
+ "style": "F_xa3",
+ "params": {
+  "name": "F-tone v0.3 关中西安味普通话",
+  "text_file": "text_F_xa.txt",
+  "prompt_sid": 46,
+  "prompt_sentences": [
+   "今天的阳光已经悄悄爬上窗台了。",
+   "你昨天交代的事情，我都放在心上。"
+  ],
+  "speed": 0.62,
+  "num_steps": 8,
+  "chunk_chars": 24,
+  "chunk_pause_ms": 500,
+  "treble_db": -4,
+  "lowpass_hz": 10000,
+  "ref_rms": 0.1122,
+  "gain": 0.95
+ },
+ "prompt_wav_sha256": "cdb455c2093d50418dd2bd39bd14023f2ec53454355a2016b7f27325c7cde1e1",
+ "chunks": [
+  {
+   "i": 0,
+   "text": "主人，早上好么。今儿个的日头，已经悄悄爬到窗台上咧。",
+   "seconds": 6.879
+  },
+  {
+   "i": 1,
+   "text": "你夜个交代的事，额都记在心上咧。不过，今儿先嫑急着忙，好不好？",
+   "seconds": 5.737
+  },
+  {
+   "i": 2,
+   "text": "给额说，你夜黑睡得咋样？要是还想赖床，额就轻轻陪你谝一会儿。",
+   "seconds": 6.777
+  },
+  {
+   "i": 3,
+   "text": "等你收拾停当了，咱再一搭看看，今儿最要紧的三件事。",
+   "seconds": 6.255
+  },
+  {
+   "i": 4,
+   "text": "你说停，额就不言传；你说继续，额就陪你慢慢谝。",
+   "seconds": 5.572
+  }
+ ],
+ "output_wav": "Etone_F_xa3_run2.wav",
+ "output_sha256": "568c55bf2821fb0d23f356ba2fb7e8f05e113a6b7b6e83a52f680f7747a30d6f",
+ "seconds": 33.97,
+ "elapsed_s": 117.4,
+ "started_utc": "2026-10-18T07:19:04Z",
+ "host": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39"
+}
