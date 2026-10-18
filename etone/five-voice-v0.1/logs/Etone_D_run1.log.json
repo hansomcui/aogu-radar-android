@@ -1,0 +1,86 @@
+{
+ "style": "D",
+ "params": {
+  "name": "成熟自然",
+  "sid": 45,
+  "length_scale": 1.08,
+  "semitones": -1.5,
+  "range": 0.85,
+  "final_rise_st": 0.0,
+  "breath_db": -60,
+  "sent_pause_ms": 450,
+  "tilt_db": 0.0
+ },
+ "sentences": [
+  {
+   "i": 0,
+   "text": "主人，早上好呀。",
+   "raw_sha256": "a4ced3de93d6b1802d128617ed6e8f8d0e1021c0dcdeb880fee6d7e7a092299e",
+   "seconds": 2.471,
+   "pause_ms": 450
+  },
+  {
+   "i": 1,
+   "text": "今天的阳光已经悄悄爬上窗台了。",
+   "raw_sha256": "c626be2b6861cbfe130275c1e46f94135fe6cee80970fd7464154a37bd988cf3",
+   "seconds": 3.548,
+   "pause_ms": 450
+  },
+  {
+   "i": 2,
+   "text": "你昨天交代的事情，我都放在心上。",
+   "raw_sha256": "96b651e2ba8a61d5d6e368da6b089b422c67f9196c3b46064aed2b7a66827482",
+   "seconds": 4.207,
+   "pause_ms": 450
+  },
+  {
+   "i": 3,
+   "text": "不过，今天先别急着忙，好不好？",
+   "raw_sha256": "61a725eb873cdd6a50496781dc7c80f4ce4ebec9e70ddd4fd7f6f8d5c8005393",
+   "seconds": 4.527,
+   "pause_ms": 450
+  },
+  {
+   "i": 4,
+   "text": "告诉我，你昨晚睡得怎么样？",
+   "raw_sha256": "12074014809cf0bef49e7d209f6f4c81900d064bbfa71ad2e359c212b16ab755",
+   "seconds": 3.322,
+   "pause_ms": 450
+  },
+  {
+   "i": 5,
+   "text": "要是还想赖床，我就轻轻陪你聊一会儿。",
+   "raw_sha256": "56fa43547879613ee5fa0d385876b60c1ca70f44b300088c0bf494d264c09148",
+   "seconds": 4.56,
+   "pause_ms": 450
+  },
+  {
+   "i": 6,
+   "text": "等你准备好了，我们再一起看看今天最重要的三件事。",
+   "raw_sha256": "677499867e56689593bbd0e8f04f055d35637925f8db4d15c112ead9692efd9f",
+   "seconds": 5.848,
+   "pause_ms": 450
+  },
+  {
+   "i": 7,
+   "text": "你说停，我就安静；",
+   "raw_sha256": "4e5062a9944656bbcc511b74af35c755c1b5d9d592b9d3ef3f8d0c95cb748b8c",
+   "seconds": 2.756,
+   "pause_ms": 315
+  },
+  {
+   "i": 8,
+   "text": "你说继续，我就陪你慢慢说。",
+   "raw_sha256": "2dd5236a11963819994a5f8bc75a1ebaeba02ff0eddf118c858f020e0f1d3a51",
+   "seconds": 3.506,
+   "pause_ms": 450
+  }
+ ],
+ "output_wav": "Etone_D_run1.wav",
+ "output_sha256": "a43ee0ab96204414d567bac2dc8a7707a373933b67365446a76f2a96dbf44838",
+ "seconds": 38.911,
+ "peak_dbfs": -1.01,
+ "elapsed_s": 77.2,
+ "started_utc": "2026-10-18T04:11:41Z",
+ "host": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39"
+}

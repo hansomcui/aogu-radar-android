@@ -1,0 +1,34 @@
+# 版本与校验
+生成时间(UTC): 2026-10-18T04:22:54Z
+主机: Linux 6.18.44-fc-v139 x86_64
+python: Python 3.13.16  numpy: 2.5.3
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+praat: Praat 6.4.27 (January 27 2025)  sha256 e28435903ec3b8a287403bdaadfcac695e928acf81e42815acbcd84edf837bd3  来源 https://github.com/praat/praat/releases/download/v6.4.27/praat6427_linux-intel64-barren.tar.gz
+sherpa-onnx: v1.13.8 linux-x64-shared  来源 https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-linux-x64-shared.tar.bz2  sherpa-onnx-offline-tts sha256 dde4fbd93181de356d9dc32cd734407be0da64c10ad5883a5a1a1328e9fbc879
+Kokoro 包: kokoro-multi-lang-v1_0.tar.bz2 sha256 c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298  来源 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
+  model.onnx sha256 b40f62b166ac8164b0627ef48a0b358eda0985e272fb03ef5252e7206305da11
+  voices.bin sha256 1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29
+  tokens.txt sha256 6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425
+  lexicon-zh.txt sha256 902bc2d20ac7c449c5ecbbbb23c89d12119c03ed5b8ed27f114f0260c9e35229
+
+# 源码 sha256
+92b3738bf2bf7136f216f22aa19b57d3709f249f9a640095d78f855aca95b691  make_voice.py
+510b0e94fca8e08a2eb8019f900f105a38886d531aa938f837d577a95ca2efc8  manip.praat
+0b0f8d3d8cb7a73579ed2f39bdc468990c1afa977c224cb3044db02767f98eb0  styles.json
+7dda77ba9286d46a32704cdc9b41658db3c81f342ba36151f893a464ea6b7911  text_zh.txt
+cb11deb34190ff328762bf466986d6508242dfb8b94f2a05c6b476511120ff5d  compare_runs.py
+547dd3f77892b939d9a663a2646d9d5d6cbaf171bf89d2d2dd57f346f3674812  paths.json
+
+# 输出 sha256
+713c8aa0cde8823ebcfce6bd9d2611d27889478cba3b84ef085cad4e901771a1  Etone_A_run1.wav
+a3caa8e51b4ecb655b964ae5d1c5e417b5e2373187804016e1cc7773b9df6d82  Etone_B_run1.wav
+ba7a95acd85db998b67cd98d638d6883b39a8e54db1c05c877dae246b6c68c33  Etone_C_run1.wav
+a43ee0ab96204414d567bac2dc8a7707a373933b67365446a76f2a96dbf44838  Etone_D_run1.wav
+1d533e9442c176f6a92cf4092aaafbabb8eb749b82f131ff17e64a357ca5e9b4  Etone_E_10s_run1.wav
+abce1ac12d77a568d9969ba7996421bac04006dd8723586c299d0e5459598759  Etone_E_run1.wav
+6c270bc208920173f9da6604d7df1071b5c3d4156d272aa78b48cf96aa6c6696  Etone_A_run2.wav
+c3c0dc2a137794741291151fbc114a892c226f275bf41e37f6e3a6754d16024c  Etone_B_run2.wav
+d9e302e9689ae26c055e8097bc8a33ec30a03c3e341379aada2019c9a2c35311  Etone_C_run2.wav
+27525de9d865689024978efb4893a8103c383749ad5b272545bb0b83652a883e  Etone_D_run2.wav
+b8f6dfc7589a1b1a23be4cbc800c9e5b7259d306131e9058609c97e83face50f  Etone_E_run2.wav
+1d533e9442c176f6a92cf4092aaafbabb8eb749b82f131ff17e64a357ca5e9b4  Etone_E_10s_run1.wav

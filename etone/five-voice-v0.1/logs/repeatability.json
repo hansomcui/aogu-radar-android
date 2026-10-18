@@ -1,0 +1,67 @@
+{
+ "A": {
+  "dur_run1": 32.111,
+  "dur_run2": 32.114,
+  "dur_diff_s": 0.003,
+  "f0_median_hz": [
+   266.5,
+   266.7
+  ],
+  "f0_diff_semitones": 0.009,
+  "max_sentence_dur_diff_s": 0.003,
+  "avg_spectrum_corr": 0.9999,
+  "bit_identical": false
+ },
+ "B": {
+  "dur_run1": 35.495,
+  "dur_run2": 35.509,
+  "dur_diff_s": 0.014,
+  "f0_median_hz": [
+   226.7,
+   226.8
+  ],
+  "f0_diff_semitones": 0.01,
+  "max_sentence_dur_diff_s": 0.007,
+  "avg_spectrum_corr": 0.9999,
+  "bit_identical": false
+ },
+ "C": {
+  "dur_run1": 30.836,
+  "dur_run2": 30.832,
+  "dur_diff_s": 0.004,
+  "f0_median_hz": [
+   320.7,
+   320.8
+  ],
+  "f0_diff_semitones": 0.006,
+  "max_sentence_dur_diff_s": 0.007,
+  "avg_spectrum_corr": 0.9998,
+  "bit_identical": false
+ },
+ "D": {
+  "dur_run1": 38.911,
+  "dur_run2": 38.931,
+  "dur_diff_s": 0.02,
+  "f0_median_hz": [
+   233.3,
+   233.5
+  ],
+  "f0_diff_semitones": 0.014,
+  "max_sentence_dur_diff_s": 0.015,
+  "avg_spectrum_corr": 0.9999,
+  "bit_identical": false
+ },
+ "E": {
+  "dur_run1": 36.964,
+  "dur_run2": 36.971,
+  "dur_diff_s": 0.007,
+  "f0_median_hz": [
+   285.3,
+   284.5
+  ],
+  "f0_diff_semitones": 0.048,
+  "max_sentence_dur_diff_s": 0.003,
+  "avg_spectrum_corr": 0.9999,
+  "bit_identical": false
+ }
+}
