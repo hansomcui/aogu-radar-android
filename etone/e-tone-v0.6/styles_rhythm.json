@@ -1,0 +1,9 @@
+{"E_tw6": {"name": "E-tone v0.6 人声节奏+柔度再加20%",
+  "source_log": "out_zv3/Etone_E_tw5_run2.log.json", "source_work": "out_zv3/work_E_tw5_run2",
+  "final_factor": 1.35, "final_span": 0.20,
+  "inner_pause_factor": 1.6, "inner_pause_add_s": 0.06,
+  "pause_ms": {"。": 700, "？": 820, "！": 700, "；": 520},
+  "topic_shift_starts": ["不过", "跟我说", "等你", "你说继续"], "topic_shift_add_ms": 250,
+  "seed": 20261018,
+  "treble_db": -8, "lowpass_hz": 7500, "room_delays_ms": "11|23|37", "room_decays": "0.10|0.06|0.035",
+  "ref_rms": 0.1364, "gain": 0.81}}

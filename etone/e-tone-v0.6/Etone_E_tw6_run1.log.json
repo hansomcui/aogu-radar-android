@@ -1,0 +1,160 @@
+{
+ "style": "E_tw6",
+ "params": {
+  "name": "E-tone v0.6 人声节奏+柔度再加20%",
+  "source_log": "out_zv3/Etone_E_tw5_run2.log.json",
+  "source_work": "out_zv3/work_E_tw5_run2",
+  "final_factor": 1.35,
+  "final_span": 0.2,
+  "inner_pause_factor": 1.6,
+  "inner_pause_add_s": 0.06,
+  "pause_ms": {
+   "。": 700,
+   "？": 820,
+   "！": 700,
+   "；": 520
+  },
+  "topic_shift_starts": [
+   "不过",
+   "跟我说",
+   "等你",
+   "你说继续"
+  ],
+  "topic_shift_add_ms": 250,
+  "seed": 20261018,
+  "treble_db": -8,
+  "lowpass_hz": 7500,
+  "room_delays_ms": "11|23|37",
+  "room_decays": "0.10|0.06|0.035",
+  "ref_rms": 0.1364,
+  "gain": 0.81
+ },
+ "sentences": [
+  {
+   "text": "主人，早安喔。",
+   "source": "00_c1.wav.trim.wav",
+   "stretch_points_s": [
+    0.65,
+    1.84
+   ],
+   "inner_pause_ext_s": [
+    0.129
+   ],
+   "pause_after_ms": 602,
+   "seconds": 2.153
+  },
+  {
+   "text": "今天的阳光，已经偷偷爬上窗台了耶。",
+   "source": "01_c0.wav.trim.wav",
+   "stretch_points_s": [
+    3.7,
+    4.55
+   ],
+   "inner_pause_ext_s": [
+    0.224
+   ],
+   "pause_after_ms": 756,
+   "seconds": 4.951
+  },
+  {
+   "text": "你昨天交代的事情，我都有放在心上啦。",
+   "source": "02_c0.wav.trim.wav",
+   "stretch_points_s": [
+    2.32,
+    4.62
+   ],
+   "inner_pause_ext_s": [
+    0.156
+   ],
+   "pause_after_ms": 808,
+   "seconds": 4.96
+  },
+  {
+   "text": "不过，今天先不要急着忙嘛，好不好？",
+   "source": "03_c0.wav.trim.wav",
+   "stretch_points_s": [
+    0.16,
+    3.4,
+    4.28
+   ],
+   "inner_pause_ext_s": [
+    0.188,
+    0.163
+   ],
+   "pause_after_ms": 959,
+   "seconds": 4.868
+  },
+  {
+   "text": "跟我说，你昨天晚上有睡好吗？",
+   "source": "04_c0.wav.trim.wav",
+   "stretch_points_s": [
+    2.71,
+    3.61
+   ],
+   "inner_pause_ext_s": [
+    0.173
+   ],
+   "pause_after_ms": 888,
+   "seconds": 3.962
+  },
+  {
+   "text": "如果还想赖床，我就轻轻地陪你聊一下下喔。",
+   "source": "05_c2.wav.trim.wav",
+   "stretch_points_s": [
+    4.53,
+    5.11
+   ],
+   "inner_pause_ext_s": [
+    0.219
+   ],
+   "pause_after_ms": 815,
+   "seconds": 5.507
+  },
+  {
+   "text": "等你准备好了，我们再一起来看看，今天最重要的三件事。",
+   "source": "06_c1.wav.trim.wav",
+   "stretch_points_s": [
+    1.54,
+    3.69,
+    6.63
+   ],
+   "inner_pause_ext_s": [
+    0.182,
+    0.157
+   ],
+   "pause_after_ms": 620,
+   "seconds": 7.229
+  },
+  {
+   "text": "你说停，我就安静；",
+   "source": "07_c1.wav.trim.wav",
+   "stretch_points_s": [
+    0.5,
+    0.98,
+    2.26
+   ],
+   "inner_pause_ext_s": [
+    0.096,
+    0.164
+   ],
+   "pause_after_ms": 766,
+   "seconds": 2.778
+  },
+  {
+   "text": "你说继续，我就陪你慢慢讲。",
+   "source": "08_c0.wav.trim.wav",
+   "stretch_points_s": [
+    0.55,
+    3.62
+   ],
+   "inner_pause_ext_s": [
+    0.19
+   ],
+   "pause_after_ms": 342,
+   "seconds": 3.991
+  }
+ ],
+ "output_sha256": "d7555eb6bcf43dc49cfa84bb9ffcd6a8a80314265302550117a4820f699a7eb4",
+ "seconds": 47.291,
+ "elapsed_s": 3.8
+}
