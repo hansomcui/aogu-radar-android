@@ -1,0 +1,28 @@
+{
+ "E_tw5": {
+  "name": "E-tone v0.5 台湾普通话 人声加强",
+  "text_file": "text_E_tw.txt",
+  "prompt_files": [
+   "out_zv2/work_E_tw4_run3/04_c1.wav.trim.wav",
+   "out_zv2/work_E_tw4_run3/05_c1.wav.trim.wav",
+   "out_zv2/work_E_tw4_run3/07_c2.wav.trim.wav"
+  ],
+  "prompt_text": "你昨天交代的事情，我都有放在心上啦。今天先不要急着忙嘛，",
+  "speed": 0.88,
+  "num_steps": 8,
+  "candidates": 3,
+  "seed": 20261018,
+  "pause_ms": {
+   "。": 680,
+   "？": 720,
+   "！": 680,
+   "；": 480
+  },
+  "treble_db": -6,
+  "lowpass_hz": 9000,
+  "room_delays_ms": "11|23|37",
+  "room_decays": "0.10|0.06|0.035",
+  "ref_rms": 0.1364,
+  "gain": 0.81
+ }
+}

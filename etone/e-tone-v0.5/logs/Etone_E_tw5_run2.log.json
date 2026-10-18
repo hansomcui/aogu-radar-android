@@ -1,0 +1,309 @@
+{
+ "style": "E_tw5",
+ "params": {
+  "name": "E-tone v0.5 台湾普通话 人声加强",
+  "text_file": "text_E_tw.txt",
+  "prompt_files": [
+   "out_zv2/work_E_tw4_run3/04_c1.wav.trim.wav",
+   "out_zv2/work_E_tw4_run3/05_c1.wav.trim.wav",
+   "out_zv2/work_E_tw4_run3/07_c2.wav.trim.wav"
+  ],
+  "prompt_text": "你昨天交代的事情，我都有放在心上啦。今天先不要急着忙嘛，",
+  "speed": 0.88,
+  "num_steps": 8,
+  "candidates": 3,
+  "seed": 20261018,
+  "pause_ms": {
+   "。": 680,
+   "？": 720,
+   "！": 680,
+   "；": 480
+  },
+  "treble_db": -6,
+  "lowpass_hz": 9000,
+  "room_delays_ms": "11|23|37",
+  "room_decays": "0.10|0.06|0.035",
+  "ref_rms": 0.1364,
+  "gain": 0.81
+ },
+ "prompt_sha256": "167598ec7d7d8e97b5471d7a156826b3279ea235e157eb05617f6f3564dadbea",
+ "prompt_f0_median": 253.5,
+ "sentences": [
+  {
+   "i": 0,
+   "text": "主人，早安喔。",
+   "chosen": 1,
+   "candidates": [
+    {
+     "dip_s": 0.22,
+     "pitch_dev_st": 3.57,
+     "jump_ratio": 0.026,
+     "rate_cps": 2.89,
+     "score": 4.603
+    },
+    {
+     "dip_s": 0.14,
+     "pitch_dev_st": 0.64,
+     "jump_ratio": 0.007,
+     "rate_cps": 2.67,
+     "score": 1.455
+    },
+    {
+     "dip_s": 0.12,
+     "pitch_dev_st": 1.74,
+     "jump_ratio": 0.023,
+     "rate_cps": 2.93,
+     "score": 2.396
+    }
+   ],
+   "seconds": 1.873,
+   "pause_ms": 756
+  },
+  {
+   "i": 1,
+   "text": "今天的阳光，已经偷偷爬上窗台了耶。",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.28,
+     "pitch_dev_st": 0.14,
+     "jump_ratio": 0.033,
+     "rate_cps": 3.28,
+     "score": 1.316
+    },
+    {
+     "dip_s": 0.26,
+     "pitch_dev_st": 1.72,
+     "jump_ratio": 0.034,
+     "rate_cps": 3.44,
+     "score": 2.839
+    },
+    {
+     "dip_s": 0.38,
+     "pitch_dev_st": 0.51,
+     "jump_ratio": 0.022,
+     "rate_cps": 3.21,
+     "score": 1.87
+    }
+   ],
+   "seconds": 4.576,
+   "pause_ms": 656
+  },
+  {
+   "i": 2,
+   "text": "你昨天交代的事情，我都有放在心上啦。",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.18,
+     "pitch_dev_st": 0.08,
+     "jump_ratio": 0.012,
+     "rate_cps": 3.44,
+     "score": 0.744
+    },
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 0.13,
+     "jump_ratio": 0.027,
+     "rate_cps": 3.67,
+     "score": 1.0
+    },
+    {
+     "dip_s": 0.18,
+     "pitch_dev_st": 0.35,
+     "jump_ratio": 0.022,
+     "rate_cps": 3.41,
+     "score": 1.108
+    }
+   ],
+   "seconds": 4.654,
+   "pause_ms": 584
+  },
+  {
+   "i": 3,
+   "text": "不过，今天先不要急着忙嘛，好不好？",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 0.05,
+     "jump_ratio": 0.018,
+     "rate_cps": 3.25,
+     "score": 0.836
+    },
+    {
+     "dip_s": 0.26,
+     "pitch_dev_st": 0.66,
+     "jump_ratio": 0.025,
+     "rate_cps": 3.44,
+     "score": 1.693
+    },
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 0.07,
+     "jump_ratio": 0.021,
+     "rate_cps": 3.85,
+     "score": 0.88
+    }
+   ],
+   "seconds": 4.311,
+   "pause_ms": 770
+  },
+  {
+   "i": 4,
+   "text": "跟我说，你昨天晚上有睡好吗？",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.24,
+     "pitch_dev_st": 0.49,
+     "jump_ratio": 0.028,
+     "rate_cps": 3.3,
+     "score": 1.488
+    },
+    {
+     "dip_s": 0.24,
+     "pitch_dev_st": 0.85,
+     "jump_ratio": 0.02,
+     "rate_cps": 3.19,
+     "score": 1.771
+    },
+    {
+     "dip_s": 0.22,
+     "pitch_dev_st": 0.94,
+     "jump_ratio": 0.02,
+     "rate_cps": 3.23,
+     "score": 1.8
+    }
+   ],
+   "seconds": 3.638,
+   "pause_ms": 797
+  },
+  {
+   "i": 5,
+   "text": "如果还想赖床，我就轻轻地陪你聊一下下喔。",
+   "chosen": 2,
+   "candidates": [
+    {
+     "dip_s": 0.28,
+     "pitch_dev_st": 1.88,
+     "jump_ratio": 0.019,
+     "rate_cps": 3.29,
+     "score": 2.918
+    },
+    {
+     "dip_s": 0.32,
+     "pitch_dev_st": 2.24,
+     "jump_ratio": 0.013,
+     "rate_cps": 3.57,
+     "score": 3.329
+    },
+    {
+     "dip_s": 0.26,
+     "pitch_dev_st": 0.67,
+     "jump_ratio": 0.024,
+     "rate_cps": 3.5,
+     "score": 1.685
+    }
+   ],
+   "seconds": 5.137,
+   "pause_ms": 735
+  },
+  {
+   "i": 6,
+   "text": "等你准备好了，我们再一起来看看，今天最重要的三件事。",
+   "chosen": 1,
+   "candidates": [
+    {
+     "dip_s": 0.34,
+     "pitch_dev_st": 0.75,
+     "jump_ratio": 0.014,
+     "rate_cps": 3.7,
+     "score": 1.911
+    },
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 0.74,
+     "jump_ratio": 0.021,
+     "rate_cps": 3.45,
+     "score": 1.547
+    },
+    {
+     "dip_s": 0.28,
+     "pitch_dev_st": 1.07,
+     "jump_ratio": 0.022,
+     "rate_cps": 3.72,
+     "score": 2.128
+    }
+   ],
+   "seconds": 6.664,
+   "pause_ms": 713
+  },
+  {
+   "i": 7,
+   "text": "你说停，我就安静；",
+   "chosen": 1,
+   "candidates": [
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 1.59,
+     "jump_ratio": 0.035,
+     "rate_cps": 3.17,
+     "score": 2.534
+    },
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 0.01,
+     "jump_ratio": 0.027,
+     "rate_cps": 3.05,
+     "score": 0.888
+    },
+    {
+     "dip_s": 0.16,
+     "pitch_dev_st": 0.87,
+     "jump_ratio": 0.03,
+     "rate_cps": 3.54,
+     "score": 1.65
+    }
+   ],
+   "seconds": 2.292,
+   "pause_ms": 410
+  },
+  {
+   "i": 8,
+   "text": "你说继续，我就陪你慢慢讲。",
+   "chosen": 0,
+   "candidates": [
+    {
+     "dip_s": 0.2,
+     "pitch_dev_st": 0.07,
+     "jump_ratio": 0.013,
+     "rate_cps": 3.01,
+     "score": 0.796
+    },
+    {
+     "dip_s": 0.24,
+     "pitch_dev_st": 0.48,
+     "jump_ratio": 0.033,
+     "rate_cps": 3.35,
+     "score": 1.528
+    },
+    {
+     "dip_s": 0.16,
+     "pitch_dev_st": 0.57,
+     "jump_ratio": 0.013,
+     "rate_cps": 3.27,
+     "score": 1.186
+    }
+   ],
+   "seconds": 3.651,
+   "pause_ms": 297
+  }
+ ],
+ "output_wav": "Etone_E_tw5_run2.wav",
+ "output_sha256": "1a3af1189915eac0726d9ec467a89745ac25c5d94969c194c32d80c607c4a912",
+ "seconds": 42.852,
+ "elapsed_s": 481.5,
+ "started_utc": "2026-10-18T12:19:24Z",
+ "host": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39"
+}
