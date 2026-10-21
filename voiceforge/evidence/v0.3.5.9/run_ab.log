@@ -1,0 +1,25 @@
+2026-10-21T12:16:53Z
+# chunks=8 threads=2 steps=4 recreate_every=0 ref_s=19.4
+# idx chars audio_s secs rss_mb hwm_mb heap_mb
+load rss_mb=302 hwm_mb=310
+1 223 96.1 167.3 2445 2462 2555
+2 195 83.8 145.5 3834 3834 4741
+3 232 96.7 160.0 3993 4020 4742
+4 227 92.3 145.7 4139 4139 4742
+5 288 126.1 220.7 4118 4151 4742
+6 199 87.7 157.1 4135 4150 4743
+7 260 114.0 198.6 4158 4169 4743
+8 290 124.7 212.8 4258 4269 4743
+exit=0
+2026-10-21T12:40:25Z
+# chunks=8 threads=2 steps=4 recreate_every=2 ref_s=19.4
+# idx chars audio_s secs rss_mb hwm_mb heap_mb
+load rss_mb=314 hwm_mb=314
+1 223 96.1 174.6 2457 2474 2555
+2 195 83.8 142.8 3852 3852 4741
+recreate rss_mb=290
+3 232 96.7 160.8 4871 4871 5788
+4 227 92.3 148.9 5075 5075 5797
+Terminated
+exit=143
+2026-10-21T12:51:25Z
